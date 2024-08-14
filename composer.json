@@ -10,7 +10,7 @@
             "email": "sollano.markangelo@gmail.com"
         }
     ],
-    "version": "1.0.0",
+    "version": "1.0.1",
     "require": {
         "php": "^8.2",  
         "laravel/framework": "^11.9"
