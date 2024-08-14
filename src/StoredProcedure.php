@@ -152,10 +152,8 @@ class StoredProcedure
 
         if ($record_count > 0 && $this->result instanceof Collection) {
             return Collection::make($this->result);
-        } else if ($record_count > 1 && is_array($this->result)) {
+        } else if ($record_count > 0 && is_array($this->result)) {
             return $this->result;
-        } else if($record_count == 1 && is_array($this->result)) {
-            return $this->result[0];
         } else {
             return [];
         }
