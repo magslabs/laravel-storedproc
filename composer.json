@@ -18,5 +18,7 @@
         "psr-4": {
             "MagsLabs\\LaravelStoredProc\\": "src/"
         }
-    }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
 }
