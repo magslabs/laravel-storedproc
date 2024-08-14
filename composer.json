@@ -1,6 +1,7 @@
 {
     "name": "magslabs/laravel-storedproc",
     "type": "library",
+    "keywords": ["magslabs", "laravel", "stored procedure"],
     "description": "This is a custom package for Laravel to utilize/use stored procedures on your application.",
     "license": "MIT",
     "authors": [
@@ -19,6 +20,5 @@
             "MagsLabs\\LaravelStoredProc\\": "src/"
         }
     },
-    "minimum-stability": "stable",
-    "prefer-stable": true
+    "minimum-stability": "stable"
 }
