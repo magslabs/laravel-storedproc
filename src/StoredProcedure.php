@@ -1,6 +1,6 @@
 <?php
 
-namespace Magslabs\LaravelStoredProcedure;
+namespace MagsLabs\LaravelStoredProc;
 
 use Illuminate\Http\Client\Request;
 
