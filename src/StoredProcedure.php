@@ -96,11 +96,11 @@ class StoredProcedure
             }
 
             // implode the array to stringify the keys
-            $this->params = implode(',', $params_keys_array);
+            $this->params = implode(', ', $params_keys_array);
         }
         else
         {
-            $this->params = implode(',', $params) ?? '';
+            $this->params = implode(', ', $params) ?? '';
         }
 
         return $this;
@@ -123,7 +123,7 @@ class StoredProcedure
      */
     public function execute()
     {
-        $this->query = $this->query . '(' . $this->params . ');';
+        $this->query = $this->query . ' (' . $this->params . ');';
 
         if ($this->connection == ''){
             if($this->values == []){
