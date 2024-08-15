@@ -126,7 +126,7 @@ class StoredProcedure
      */
     public function execute()
     {
-        $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : '' . $this->params;
+        $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
         $this->query = $this->query . $bindings;
 
         if ($this->connection == ''){
