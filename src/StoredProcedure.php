@@ -9,6 +9,9 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
+/**
+ * Summary of StoredProcedure
+ */
 class StoredProcedure
 {
     protected $db;
