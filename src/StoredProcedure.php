@@ -191,15 +191,6 @@ class StoredProcedure
         } else {
             return Collection::make([]);
         }
-
-        // if ($record_count > 0 && $this->result instanceof Collection) {
-        //     return Collection::make($this->result);
-        // } else if ($record_count > 0 && is_array($this->result)) {
-        //     return $this->result;
-        // } else {
-        //     return [];
-        // }
-
     }
 
 }
