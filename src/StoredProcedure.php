@@ -3,14 +3,18 @@
 namespace MagsLabs\LaravelStoredProc;
 
 use Illuminate\Http\Client\Request;
-
 use Illuminate\Foundation\Http\FormRequest;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 /**
- * Summary of StoredProcedure
+ * @method static StoredProcedure stored_procedure(string $procedure = '')
+ * @method static StoredProcedure stored_procedure_connection(string $connection = '')
+ * @method static StoredProcedure stored_procedure_params(array | Request| FormRequest $params = [])
+ * @method static StoredProcedure stored_procedure_values(array $values = [])
+ * @method static StoredProcedure execute()
+ * @method static StoredProcedure stored_procedure_result()
  */
 class StoredProcedure
 {
@@ -49,9 +53,13 @@ class StoredProcedure
     }
 
     /**
-     * Summary of stored_procedure - Sets the stored procedure to be executed.
-     * @param string $procedure
-     * @return static
+     * [Required]
+     * The stored_procedure method sets the stored procedure $procedure to be executed.
+     * 
+     * Call the stored_procedure method as the first method to set the stored procedure to be executed.
+     * 
+     * @param string $procedure *$procedure should be a string. Default is an empty string.
+     * @return static *returns the stored procedure object
      */
     public function stored_procedure(
         string $procedure = '')
@@ -62,9 +70,16 @@ class StoredProcedure
     }
 
     /**
-     * Summary of stored_procedure_connection - Sets the connection for the stored procedure.
-     * @param string $connection
-     * @return static
+     * [Optional]
+     * The stored_procedure_connection method sets the connection for the stored procedure.
+     * The connection parameter is used to specify which database connection to use when executing the stored procedure.
+     * 
+     * Call the stored_procedure_connection method after calling the stored_procedure method to set the connection for the stored procedure.
+     * 
+     * @param string $connection *$connection should be a string. Default is the default database connection you have set in your .env [DB_CONNECTION] file.
+     * Example: 'mysql', 'sqlsrv', 'pgsql', 'sqlite', 'sqlsrv', 'your_connection_name'.
+     * 
+     * @return static *returns the stored procedure object
      */
     public function stored_procedure_connection(string $connection = '')
     {
@@ -73,13 +88,17 @@ class StoredProcedure
     }
 
     /**
-     * Summary of stored_procedure_params - Sets the parameters for the stored procedure.
-     * @param Request|FormRequest|array $params - $params should be an instance of Request, FormRequest or array
-     * Request and FormRequest are used to get the parameters from the request from the client.
-     * array is used to get the custom parameters from the array.
-     * @return static
+     * [Optional] -> [Required if your stored procedure has parameters]
+     * The stored_procedure_params method sets the parameters for the stored procedure.
+     * 
+     * Call the stored_procedure_params method after calling the stored_procedure method to set the parameters for the stored procedure.
+     * A caveat is that the stored_procedure_params method can only be called if your stored procedure has parameters.
+     * 
+     * @param array | Request| FormRequest $params *$params should be an instance of array, Request, or FormRequest. Default is an empty array.
+     * 
+     * @return static *returns the stored procedure object
      */
-    public function stored_procedure_params($params = [])
+    public function stored_procedure_params(array | Request| FormRequest $params = [])   
     {
         if($params instanceof Request || $params instanceof FormRequest)
         {
@@ -110,9 +129,15 @@ class StoredProcedure
     }
 
     /**
-     * Summary of stored_procedure_values - Sets the values for the stored procedure.
-     * @param array $values - $values should be an instance of array
-     * @return static
+     * [Optional] -> [Required if your stored procedure has parameters]
+     * The stored_procedure_values method sets the values for the stored procedure.
+     * 
+     * Call the stored_procedure_values method after calling the stored_procedure_params method to set the values for the stored procedure.
+     * 
+     * @param array $values *$values should be an instance of array. Default is an empty array.
+     * Example: [$value1, $value2, $value3, $value_N...]
+     * 
+     * @return static *returns the stored procedure object
      */
     public function stored_procedure_values(array $values = [])
     {
@@ -121,8 +146,12 @@ class StoredProcedure
     }
 
     /**
-     * Summary of execute - Executes the stored procedure.
-     * @return static
+     * [Required]
+     * The execute method executes the stored procedure.
+     * 
+     * Call the execute method as the last method to execute the stored procedure.
+     * 
+     * @return static *returns the stored procedure object
      */
     public function execute()
     {
@@ -146,21 +175,31 @@ class StoredProcedure
     }
 
     /**
-     * Summary of stored_procedure_result - returns the result of the stored procedure.
-     * @param bool $return_type
-     * @return mixed collection or array - depends on the $return_type parameter value. Default is array.
+     * [Required]
+     * The stored_procedure_result method returns the result of the stored procedure as a collection or an array.
+     * 
+     * Call the stored_procedure_result method after calling the execute method to retrieve the result of the stored procedure.
+     * 
+     * @return collection|array *returns a collection of results or an array of results
      */
     public function stored_procedure_result()
     {
         $record_count = collect($this->result)->count();
 
-        if ($record_count > 0 && $this->result instanceof Collection) {
+        if ($record_count > 0){
             return Collection::make($this->result);
-        } else if ($record_count > 0 && is_array($this->result)) {
-            return $this->result;
         } else {
-            return [];
+            return Collection::make([]);
         }
+
+        // if ($record_count > 0 && $this->result instanceof Collection) {
+        //     return Collection::make($this->result);
+        // } else if ($record_count > 0 && is_array($this->result)) {
+        //     return $this->result;
+        // } else {
+        //     return [];
+        // }
+
     }
 
 }
