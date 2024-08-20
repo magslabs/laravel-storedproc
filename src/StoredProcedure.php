@@ -89,13 +89,15 @@ class StoredProcedure
 
     /**
      * [Optional] -> [Required if your stored procedure has parameters]
+     * 
+     * @depends stored_procedure
+     * 
      * The stored_procedure_params method sets the parameters for the stored procedure.
      * 
      * Call the stored_procedure_params method after calling the stored_procedure method to set the parameters for the stored procedure.
      * A caveat is that the stored_procedure_params method can only be called if your stored procedure has parameters.
      * 
      * @param array | Request| FormRequest $params *$params should be an instance of array, Request, or FormRequest. Default is an empty array.
-     * 
      * @return static *returns the stored procedure object
      */
     public function stored_procedure_params(array | Request| FormRequest $params = [])   
@@ -130,6 +132,9 @@ class StoredProcedure
 
     /**
      * [Optional] -> [Required if your stored procedure has parameters]
+     * 
+     * @depends stored_procedure_params
+     * 
      * The stored_procedure_values method sets the values for the stored procedure.
      * 
      * Call the stored_procedure_values method after calling the stored_procedure_params method to set the values for the stored procedure.
@@ -147,6 +152,9 @@ class StoredProcedure
 
     /**
      * [Required]
+     * 
+     * @depends stored_procedure
+     * 
      * The execute method executes the stored procedure.
      * 
      * Call the execute method as the last method to execute the stored procedure.
@@ -176,6 +184,10 @@ class StoredProcedure
 
     /**
      * [Required]
+     * 
+     * @depends stored_procedure
+     * @depends execute
+     * 
      * The stored_procedure_result method returns the result of the stored procedure as a collection or an array.
      * 
      * Call the stored_procedure_result method after calling the execute method to retrieve the result of the stored procedure.
