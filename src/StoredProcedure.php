@@ -9,12 +9,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 /**
- * @method static StoredProcedure stored_procedure(string $procedure = '')
- * @method static StoredProcedure stored_procedure_connection(string $connection = '')
- * @method static StoredProcedure stored_procedure_params(array | Request| FormRequest $params = [])
- * @method static StoredProcedure stored_procedure_values(array $values = [])
- * @method static StoredProcedure execute()
- * @method static StoredProcedure stored_procedure_result()
+ * @method static StoredProcedure stored_procedure(string $procedure = '') - required -> always call this method first to set the stored procedure name
+ * @method static StoredProcedure stored_procedure_connection(string $connection = '') - optional -> required if you want to set a specific database connection for the stored procedure
+ * @method static StoredProcedure stored_procedure_params(array | Request| FormRequest $params = []) - optional -> required if your stored procedure has parameters
+ * @method static StoredProcedure stored_procedure_values(array $values = []) - optional -> required if your stored procedure has parameters
+ * @method static StoredProcedure execute() - required -> always call this method last
+ * @method static StoredProcedure stored_procedure_result() - required -> to retrieve the result of the stored procedure
  */
 class StoredProcedure
 {
@@ -100,7 +100,7 @@ class StoredProcedure
      * @param array | Request| FormRequest $params *$params should be an instance of array, Request, or FormRequest. Default is an empty array.
      * @return static *returns the stored procedure object
      */
-    public function stored_procedure_params(array | Request| FormRequest $params = [])   
+    public function stored_procedure_params(array | Request | FormRequest $params = [])   
     {
         if($params instanceof Request || $params instanceof FormRequest)
         {
