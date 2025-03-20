@@ -8,78 +8,89 @@ use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
+use Exception;
+
 /**
- * @method static StoredProcedure stored_procedure(string $procedure = '') - required -> always call this method first to set the stored procedure name
- * @method static StoredProcedure stored_procedure_connection(string $connection = '') - optional -> required if you want to set a specific database connection for the stored procedure
- * @method static StoredProcedure stored_procedure_params(array | Request| FormRequest $params = []) - optional -> required if your stored procedure has parameters
- * @method static StoredProcedure stored_procedure_values(array $values = []) - optional -> required if your stored procedure has parameters
- * @method static StoredProcedure execute() - required -> always call this method last
- * @method static StoredProcedure stored_procedure_result() - required -> to retrieve the result of the stored procedure
+ * Class StoredProcedure
+ *
+ * A fluent interface for executing stored procedures in Laravel.
+ * 
+ * ### Example Usage:
+ * ```php
+ * $result = StoredProcedure::stored_procedure('my_procedure')
+ *      ->stored_procedure_params(['id' => 1])
+ *      ->stored_procedure_values([1])
+ *      ->execute()
+ *      ->stored_procedure_result();
+ * ```
+ *
+ * @method static self stored_procedure(string $procedure) Set the stored procedure name (Required, must be called first).
+ * @method static self stored_procedure_connection(string $connection) Set a specific database connection (Optional).
+ * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters (Optional, required if the procedure has parameters).
+ * @method static self stored_procedure_values(array $values) Set procedure values corresponding to parameters (Optional, required if parameters exist).
+ * @method static self execute() Execute the stored procedure (Required, must be called last).
+ * @method static Collection|array stored_procedure_result() Retrieve the stored procedure result (Required).
  */
 class StoredProcedure
 {
     protected $db;
-
     protected $db_driver;
-
     protected $command;
-
     protected $query;
-
     protected $params;
-
     protected $values;
-
     protected $connection;
-
     protected $result;
+
+    private bool $is_sp_name_initialized = false;
+    private bool $is_sp_params_initialized = false;
+    private bool $is_sp_values_initialized = false;
+    private bool $is_execute_called = false;
 
     public function __construct()
     {
         $this->db = DB::class;
         $this->db_driver = $this->db::getConfig("driver");
 
+        // Determine the correct stored procedure execution command based on the database driver
         switch ($this->db_driver) {
             case 'mysql':
-                $this->command = 'CALL';
+                $this->command = 'CALL'; // MySQL stored procedures use CALL
                 break;
             case 'sqlsrv':
-                $this->command = 'EXEC';
+                $this->command = 'EXEC'; // SQL Server stored procedures use EXEC
                 break;
             default:
-                $this->command = 'CALL';
+                $this->command = 'CALL'; // Default to MySQL behavior
                 break;
         }
     }
 
     /**
      * [Required]
-     * The stored_procedure method sets the stored procedure $procedure to be executed.
-     * 
-     * Call the stored_procedure method as the first method to set the stored procedure to be executed.
-     * 
-     * @param string $procedure *$procedure should be a string. Default is an empty string.
-     * @return static *returns the stored procedure object
+     * Set the stored procedure name.
+     *
+     * This method **must be called first** before executing the stored procedure.
+     *
+     * @param string $procedure The stored procedure name.
+     * @return self Provides method chaining.
      */
-    public function stored_procedure(
-        string $procedure = '')
+    public function stored_procedure(string $procedure = '')
     {
         $this->query = $this->command . ' ' . $procedure;
-
+        $this->is_sp_name_initialized = true;
         return $this;
     }
 
+
     /**
      * [Optional]
-     * The stored_procedure_connection method sets the connection for the stored procedure.
-     * The connection parameter is used to specify which database connection to use when executing the stored procedure.
-     * 
-     * Call the stored_procedure_connection method after calling the stored_procedure method to set the connection for the stored procedure.
-     * 
-     * @param string $connection *$connection should be a string. Default is the default database connection you have set in your .env [DB_CONNECTION] file.
-     * Example: 'mysql', 'sqlsrv', 'pgsql', 'sqlite', 'sqlsrv', 'your_connection_name'.
-     * 
-     * @return static *returns the stored procedure object
+     * Set the database connection.
+     *
+     * If not specified, the default database connection from `.env` (`DB_CONNECTION`) is used.
+     *
+     * @param string $connection The connection name (e.g., 'mysql', 'pgsql', 'sqlsrv').
+     * @return self Provides method chaining.
      */
     public function stored_procedure_connection(string $connection = '')
     {
@@ -88,26 +99,25 @@ class StoredProcedure
     }
 
     /**
-     * [Optional] -> [Required if your stored procedure has parameters]
-     * 
-     * @depends stored_procedure
-     * 
-     * The stored_procedure_params method sets the parameters for the stored procedure.
-     * 
-     * Call the stored_procedure_params method after calling the stored_procedure method to set the parameters for the stored procedure.
-     * A caveat is that the stored_procedure_params method can only be called if your stored procedure has parameters.
-     * 
-     * @param array | Request| FormRequest $params *$params should be an instance of array, Request, or FormRequest. Default is an empty array.
-     * @return static *returns the stored procedure object
+     * Set the stored procedure parameters.
+     *
+     * This method **must be called after** `stored_procedure()` if parameters are required.
+     *
+     * @param array|Request|FormRequest $params Procedure parameters as an array, Request, or FormRequest.
+     * @return self Provides method chaining.
+     * @throws Exception If `stored_procedure()` was not called first.
      */
-    public function stored_procedure_params(array | Request | FormRequest $params = [])   
+    public function stored_procedure_params(array|Request|FormRequest $params = [])
     {
-        if($params instanceof Request || $params instanceof FormRequest)
-        {
-            // unset the _token from the request
+        if (!$this->is_sp_name_initialized) {
+            throw new Exception('You must call stored_procedure() before stored_procedure_params().');
+        }
+
+        if ($params instanceof Request || $params instanceof FormRequest) {
+            // Remove CSRF token if it exists in the request
             unset($params['_token']);
 
-            // extract the key names from the request
+            // Extract parameter names and format them as SQL placeholders (e.g., ":id")
             $params_keys = array_keys($params->toArray());
 
             // declare an array to store the key names
@@ -119,90 +129,123 @@ class StoredProcedure
                 $params_keys_array[] = $i;
             }
 
-            // implode the array to stringify the keys
+            // Convert the array into a comma-separated string
             $this->params = implode(', ', $params_keys_array);
-        }
-        else
-        {
+        } else {
+            // Ensure it's always a valid string
             $this->params = implode(', ', $params) ?? '';
         }
 
+        $this->is_sp_params_initialized = true;
         return $this;
     }
 
     /**
-     * [Optional] -> [Required if your stored procedure has parameters]
-     * 
-     * @depends stored_procedure_params
-     * 
-     * The stored_procedure_values method sets the values for the stored procedure.
-     * 
-     * Call the stored_procedure_values method after calling the stored_procedure_params method to set the values for the stored procedure.
-     * 
-     * @param array $values *$values should be an instance of array. Default is an empty array.
-     * Example: [$value1, $value2, $value3, $value_N...]
-     * 
-     * @return static *returns the stored procedure object
+     * Set the values for the stored procedure parameters.
+     *
+     * This method **must be called after** `stored_procedure_params()` if parameters exist.
+     *
+     * @param array $values The parameter values.
+     * @return self Provides method chaining.
+     * @throws Exception If `stored_procedure_params()` was not called first.
      */
     public function stored_procedure_values(array $values = [])
     {
+        if (!$this->is_sp_params_initialized) {
+            throw new Exception('You must call stored_procedure_params() before stored_procedure_values().');
+        }
+
         $this->values = $values ?? [];
+
+        $this->is_sp_values_initialized = true;
         return $this;
     }
 
+
     /**
      * [Required]
-     * 
-     * @depends stored_procedure
-     * 
-     * The execute method executes the stored procedure.
-     * 
-     * Call the execute method as the last method to execute the stored procedure.
-     * 
-     * @return static *returns the stored procedure object
+     * Execute the stored procedure.
+     *
+     * This method **must be called last** in the method chain.
+     *
+     * @return self Provides method chaining.
+     * @throws Exception If `stored_procedure()` was not called first.
      */
     public function execute()
     {
-        $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
+        if (!$this->is_sp_name_initialized) {
+            throw new Exception('You must call stored_procedure() before execute().');
+        }
+
+        // If params are set, values must also be set.
+        if ($this->is_sp_params_initialized && !$this->is_sp_values_initialized) {
+            throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
+        }
+
+        // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
+
+        // Construct the SQL query dynamically based on the database type
+        $bindings = ($this->command === 'CALL')
+            ? ((!empty($this->params)) ? " (" . $this->params . ");" : "();")
+            : ((!empty($this->params)) ? " " . $this->params : "");
+
+        // Construct the final query
         $this->query = $this->query . $bindings;
 
-        if ($this->connection == ''){
-            if($this->values == []){
-                $this->result = $this->db::select( $this->query);
-            } else {
-                $this->result = $this->db::select( $this->query, $this->values);
-            }
+        // if ($this->connection == '') {
+        //     if ($this->values == []) {
+        //         $this->result = $this->db::select($this->query);
+        //     } else {
+        //         $this->result = $this->db::select($this->query, $this->values);
+        //     }
+        // } else {
+        //     if ($this->values == []) {
+        //         $this->result = $this->db::connection($this->connection)->select($this->query);
+        //     } else {
+        //         $this->result = $this->db::connection($this->connection)->select($this->query, $this->values);
+        //     }
+        // }
+
+        // Execute the stored procedure with or without a specific database connection
+        if ($this->connection == '') {
+            $this->result = empty($this->values)
+                ? $this->db::select($this->query)
+                : $this->db::select($this->query, $this->values);
         } else {
-            if($this->values == []){
-                $this->result = $this->db::connection($this->connection)->select( $this->query);
-            } else {
-                $this->result = $this->db::connection($this->connection)->select( $this->query, $this->values);
-            }
+            $this->result = empty($this->values)
+                ? $this->db::connection($this->connection)->select($this->query)
+                : $this->db::connection($this->connection)->select($this->query, $this->values);
         }
+
+        $this->is_execute_called = true;
         return $this;
     }
 
     /**
      * [Required]
-     * 
-     * @depends stored_procedure
-     * @depends execute
-     * 
-     * The stored_procedure_result method returns the result of the stored procedure as a collection or an array.
-     * 
-     * Call the stored_procedure_result method after calling the execute method to retrieve the result of the stored procedure.
-     * 
-     * @return collection|array *returns a collection of results or an array of results
+     * Retrieve the result of the stored procedure.
+     *
+     * This method **must be called after** `execute()`.
+     *
+     * @return Collection|array The stored procedure result as a collection or an array.
+     * @throws Exception If `execute()` was not called first.
      */
     public function stored_procedure_result()
     {
-        $record_count = collect($this->result)->count();
-
-        if ($record_count > 0){
-            return Collection::make($this->result);
-        } else {
-            return Collection::make([]);
+        if (!$this->is_execute_called) {
+            throw new Exception('You must call execute() before stored_procedure_result().');
         }
-    }
 
+        // $record_count = collect($this->result)->count();
+        // if ($record_count > 0) {
+        //     return Collection::make($this->result);
+        // } else {
+        //     return Collection::make([]);
+        // }
+
+        // Return results as a Laravel Collection or an empty Collection if no records were found
+        return collect($this->result)->count() > 0
+            ? Collection::make($this->result)
+            : Collection::make([]);
+    }
 }
