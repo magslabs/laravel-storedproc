@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
 
 use Exception;
+use Throwable;
 
 /**
  * Class StoredProcedure
@@ -18,16 +19,25 @@ use Exception;
  * ### Example Usage:
  * ```php
  * $result = StoredProcedure::stored_procedure('my_procedure')
- *      ->stored_procedure_params(['id' => 1])
- *      ->stored_procedure_values([1])
- *      ->execute()
- *      ->stored_procedure_result();
+ *    ->stored_procedure_params([':id']) //optional if parameters exist
+ *    ->stored_procedure_values([1]) //optional if parameters exist
+ *    ->with_transaction() // optional to enable transactions
+ *    ->execute() 
+ *    ->stored_procedure_result();
  * ```
+ *
+ * ### Transaction Support
+ * You may call `->with_transaction()` in the chain to wrap the stored procedure in a database transaction.
+ * Laravel will automatically `commit()` or `rollBack()` the transaction based on success or failure.
+ * 
+ * ⚠️ Only use this if your stored procedure does **not** contain its own transaction logic
+ * (e.g., it does **not** use `BEGIN TRANSACTION`, `COMMIT`, or `ROLLBACK` internally).
  *
  * @method static self stored_procedure(string $procedure) Set the stored procedure name (Required, must be called first).
  * @method static self stored_procedure_connection(string $connection) Set a specific database connection (Optional).
  * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters (Optional, required if the procedure has parameters).
  * @method static self stored_procedure_values(array $values) Set procedure values corresponding to parameters (Optional, required if parameters exist).
+ * @method static self with_transaction(bool $value = true) Optionally wrap the procedure in a Laravel-managed transaction.
  * @method static self execute() Execute the stored procedure (Required, must be called last).
  * @method static Collection|array stored_procedure_result() Retrieve the stored procedure result (Required).
  */
@@ -42,6 +52,7 @@ class StoredProcedure
     protected $connection;
     protected $result;
 
+    protected bool $use_transaction = false;
     private bool $is_sp_name_initialized = false;
     private bool $is_sp_params_initialized = false;
     private bool $is_sp_values_initialized = false;
@@ -67,39 +78,36 @@ class StoredProcedure
     }
 
     /**
-     * [Required]
-     * Set the stored procedure name.
+     * Set the stored procedure name. [Required]
      *
      * This method **must be called first** before executing the stored procedure.
      *
      * @param string $procedure The stored procedure name.
      * @return self Provides method chaining.
      */
-    public function stored_procedure(string $procedure = '')
+    public function stored_procedure(string $procedure = ''): self
     {
         $this->query = $this->command . ' ' . $procedure;
         $this->is_sp_name_initialized = true;
         return $this;
     }
 
-
     /**
-     * [Optional]
-     * Set the database connection.
+     * Set the database connection. [Optional]
      *
      * If not specified, the default database connection from `.env` (`DB_CONNECTION`) is used.
      *
      * @param string $connection The connection name (e.g., 'mysql', 'pgsql', 'sqlsrv').
      * @return self Provides method chaining.
      */
-    public function stored_procedure_connection(string $connection = '')
+    public function stored_procedure_connection(string $connection = ''): self
     {
         $this->connection = $connection;
         return $this;
     }
 
     /**
-     * Set the stored procedure parameters.
+     * Set the stored procedure parameters. [Optional]
      *
      * This method **must be called after** `stored_procedure()` if parameters are required.
      *
@@ -107,7 +115,7 @@ class StoredProcedure
      * @return self Provides method chaining.
      * @throws Exception If `stored_procedure()` was not called first.
      */
-    public function stored_procedure_params(array|Request|FormRequest $params = [])
+    public function stored_procedure_params(array|Request|FormRequest $params = []): self
     {
         if (!$this->is_sp_name_initialized) {
             throw new Exception('You must call stored_procedure() before stored_procedure_params().');
@@ -141,7 +149,7 @@ class StoredProcedure
     }
 
     /**
-     * Set the values for the stored procedure parameters.
+     * Set the values for the stored procedure parameters. [Optional]
      *
      * This method **must be called after** `stored_procedure_params()` if parameters exist.
      *
@@ -149,7 +157,7 @@ class StoredProcedure
      * @return self Provides method chaining.
      * @throws Exception If `stored_procedure_params()` was not called first.
      */
-    public function stored_procedure_values(array $values = [])
+    public function stored_procedure_values(array $values = []): self
     {
         if (!$this->is_sp_params_initialized) {
             throw new Exception('You must call stored_procedure_params() before stored_procedure_values().');
@@ -161,17 +169,40 @@ class StoredProcedure
         return $this;
     }
 
+    /**
+     * Enable database transaction wrapping during stored procedure execution. [Optional]
+     *
+     * ⚠️ **Use this only if your stored procedure does NOT handle its own transactions.**
+     *
+     * Laravel will begin a transaction before executing the procedure and commit it after execution.
+     * If the procedure throws an error, the transaction will be rolled back automatically.
+     *
+     * #### ✅ Recommended Use:
+     * - When your stored procedure performs multiple DML operations (INSERT, UPDATE, DELETE) **but does not manage transactions internally.**
+     * - When you want Laravel to handle rollback automatically on exceptions.
+     *
+     * #### ⚠️ Avoid When:
+     * - The stored procedure already includes `BEGIN TRANSACTION`, `COMMIT`, or `ROLLBACK`.
+     * - You're calling nested stored procedures that manage their own transactions.
+     *
+     * @param bool $value Whether to wrap the execution in a Laravel-managed transaction. Default is true.
+     * @return self Provides method chaining.
+     */
+    public function with_transaction(bool $use_transaction = true): self
+    {
+        $this->use_transaction = $use_transaction;
+        return $this;
+    }
 
     /**
-     * [Required]
-     * Execute the stored procedure.
+     * Execute the stored procedure. [Required]
      *
      * This method **must be called last** in the method chain.
      *
      * @return self Provides method chaining.
      * @throws Exception If `stored_procedure()` was not called first.
      */
-    public function execute()
+    public function execute(): self
     {
         if (!$this->is_sp_name_initialized) {
             throw new Exception('You must call stored_procedure() before execute().');
@@ -192,29 +223,31 @@ class StoredProcedure
         // Construct the final query
         $this->query = $this->query . $bindings;
 
-        // if ($this->connection == '') {
-        //     if ($this->values == []) {
-        //         $this->result = $this->db::select($this->query);
-        //     } else {
-        //         $this->result = $this->db::select($this->query, $this->values);
-        //     }
-        // } else {
-        //     if ($this->values == []) {
-        //         $this->result = $this->db::connection($this->connection)->select($this->query);
-        //     } else {
-        //         $this->result = $this->db::connection($this->connection)->select($this->query, $this->values);
-        //     }
-        // }
+        // Checks if a specific database connection is set, otherwise use the default connection
+        $this->connection = $this->connection === ''
+            ? $this->db::connection()
+            : $this->db::connection($this->connection);
 
-        // Execute the stored procedure with or without a specific database connection
-        if ($this->connection == '') {
+        try {
+            // Begin a transaction if enabled
+            if ($this->use_transaction) {
+                $this->connection->beginTransaction();
+            }
+
+            // Execute the stored procedure with or without parameters
             $this->result = empty($this->values)
-                ? $this->db::select($this->query)
-                : $this->db::select($this->query, $this->values);
-        } else {
-            $this->result = empty($this->values)
-                ? $this->db::connection($this->connection)->select($this->query)
-                : $this->db::connection($this->connection)->select($this->query, $this->values);
+                ? $this->connection->select($this->query)
+                : $this->connection->select($this->query, $this->values);
+
+            if ($this->use_transaction) {
+                $this->connection->commit();
+            }
+        } catch (Throwable $throwable) {
+            if ($this->use_transaction) {
+                $this->connection->rollBack();
+            }
+
+            throw $throwable;
         }
 
         $this->is_execute_called = true;
@@ -222,8 +255,7 @@ class StoredProcedure
     }
 
     /**
-     * [Required]
-     * Retrieve the result of the stored procedure.
+     * Retrieve the result of the stored procedure. [Required]
      *
      * This method **must be called after** `execute()`.
      *
@@ -235,13 +267,6 @@ class StoredProcedure
         if (!$this->is_execute_called) {
             throw new Exception('You must call execute() before stored_procedure_result().');
         }
-
-        // $record_count = collect($this->result)->count();
-        // if ($record_count > 0) {
-        //     return Collection::make($this->result);
-        // } else {
-        //     return Collection::make([]);
-        // }
 
         // Return results as a Laravel Collection or an empty Collection if no records were found
         return collect($this->result)->count() > 0
