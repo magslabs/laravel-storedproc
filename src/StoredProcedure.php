@@ -225,27 +225,25 @@ class StoredProcedure
         $this->query = $this->query . $bindings;
 
         // Checks if a specific database connection is set, otherwise use the default connection
-        $this->connection = $this->connection === ''
+        $dbConnection = $this->connection === ''
             ? $this->db::connection()
             : $this->db::connection($this->connection);
 
         try {
-            // Begin a transaction if enabled
             if ($this->use_transaction) {
-                $this->connection->beginTransaction();
+                $dbConnection->beginTransaction();
             }
 
-            // Execute the stored procedure with or without parameters
             $this->result = empty($this->values)
-                ? $this->connection->select($this->query)
-                : $this->connection->select($this->query, $this->values);
+                ? $dbConnection->select($this->query)
+                : $dbConnection->select($this->query, $this->values);
 
             if ($this->use_transaction) {
-                $this->connection->commit();
+                $dbConnection->commit();
             }
         } catch (Throwable $throwable) {
             if ($this->use_transaction) {
-                $this->connection->rollBack();
+                $dbConnection->rollBack();
             }
 
             throw $throwable;
