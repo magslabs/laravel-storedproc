@@ -24,8 +24,6 @@ You can install the package via Composer:
 composer require magslabs/laravel-storedproc
 ```
 
-> 📌 This package is auto-discoverable for Laravel 5.5+ — no manual provider registration needed.
-
 ---
 
 ## 🚀 Basic Usage
