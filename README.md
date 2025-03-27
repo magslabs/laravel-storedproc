@@ -189,6 +189,29 @@ This uses Laravel’s connection from `config/database.php`.
 - Laravel 8, 9, 10, 11, 12
 - MySQL, SQL Server _(Other databases are not officially supported and may not work as expected)_
 
+---
+
+## 🔍 Logging Stored Procedure Executions
+
+This package includes built-in logging to help trace and debug stored procedure execution.
+
+### ✨ Enable a Custom Log File
+
+To log all stored procedure operations into a dedicated log file, add the following channel to your Laravel app’s `config/logging.php`:
+
+```php
+'channels' => [
+
+    // other log channels...
+
+    'magslabs_laravel_stored_proc' => [
+        'driver' => 'single',
+        'path' => storage_path('logs/magslabs_laravel_stored_proc.log'),
+        'level' => 'debug',
+    ],
+],
+
+
 <!-- ---
 
 ## 📄 License
@@ -200,3 +223,4 @@ MIT License. © [Mark Angelo Sollano / magslabs]
 ## 🙌 Credits
 
 Created by [@masollano](https://github.com/masollano) on (https://github.com/magslabs/laravel-storedproc) -->
+```

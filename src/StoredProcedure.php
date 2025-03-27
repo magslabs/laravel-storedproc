@@ -7,6 +7,7 @@ use Illuminate\Foundation\Http\FormRequest;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 use Exception;
 use Throwable;
@@ -59,6 +60,18 @@ class StoredProcedure
     private bool $is_sp_values_initialized = false;
     private bool $is_execute_called = false;
 
+    protected function logger()
+    {
+        try {
+            return Log::channel('magslabs_laravel_stored_proc');
+        } catch (\InvalidArgumentException $e) {
+            return Log::build([
+                'driver' => 'errorlog',
+                'level' => 'debug',
+            ]);
+        }
+    }
+
     public function __construct()
     {
         $this->db = DB::class;
@@ -90,6 +103,9 @@ class StoredProcedure
     {
         $this->query = $this->command . ' ' . $procedure;
         $this->is_sp_name_initialized = true;
+
+        $this->logger()->debug("Stored procedure set", ['procedure' => $procedure]);
+
         return $this;
     }
 
@@ -104,6 +120,9 @@ class StoredProcedure
     public function stored_procedure_connection(string $connection = ''): self
     {
         $this->connection = $connection;
+
+        $this->logger()->debug("Database connection set", ['connection' => $connection]);
+
         return $this;
     }
 
@@ -119,6 +138,7 @@ class StoredProcedure
     public function stored_procedure_params(array|Request|FormRequest $params = []): self
     {
         if (!$this->is_sp_name_initialized) {
+            $this->logger()->error("stored_procedure_params() called before stored_procedure()");
             throw new Exception('You must call stored_procedure() before stored_procedure_params().');
         }
 
@@ -139,13 +159,18 @@ class StoredProcedure
             }
 
             // Convert the array into a comma-separated string
-            $this->params = implode(', ', $params_keys_array);
+            // $this->params = implode(', ', $params_keys_array);
+            $this->params = empty($params_keys_array) ? null : implode(', ', $params_keys_array);
         } else {
             // Ensure it's always a valid string
-            $this->params = implode(', ', $params) ?? '';
+            // $this->params = implode(', ', $params) ?? '';
+            $this->params = empty($params) ? null : implode(', ', $params);
         }
 
         $this->is_sp_params_initialized = true;
+
+        $this->logger()->debug("Stored procedure parameters set", ['params' => $this->params]);
+
         return $this;
     }
 
@@ -161,12 +186,19 @@ class StoredProcedure
     public function stored_procedure_values(array $values = []): self
     {
         if (!$this->is_sp_params_initialized) {
+            $this->logger()->error("stored_procedure_values() called before stored_procedure_params()");
             throw new Exception('You must call stored_procedure_params() before stored_procedure_values().');
         }
 
-        $this->values = $values ?? [];
+        if (empty($this->params)) {
+            $this->logger()->error("Values were set but no parameters exist");
+            throw new Exception('Cannot call stored_procedure_values() if there are no parameters.');
+        }
 
+        $this->values = $values ?? [];
         $this->is_sp_values_initialized = true;
+
+        $this->logger()->debug("Stored procedure values set", ['values' => $values]);
         return $this;
     }
 
@@ -192,6 +224,9 @@ class StoredProcedure
     public function with_transaction(bool $use_transaction = true): self
     {
         $this->use_transaction = $use_transaction;
+
+        $this->logger()->debug("Transaction enabled", ['use_transaction' => $use_transaction]);
+
         return $this;
     }
 
@@ -206,21 +241,23 @@ class StoredProcedure
     public function execute(): self
     {
         if (!$this->is_sp_name_initialized) {
+            $this->logger()->error("execute() called before stored_procedure()");
             throw new Exception('You must call stored_procedure() before execute().');
         }
 
         // If params are set, values must also be set.
         if ($this->is_sp_params_initialized && !$this->is_sp_values_initialized) {
+            $this->logger()->error("stored_procedure_values() missing after stored_procedure_params()");
             throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
         }
 
+        // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
 
         // Construct the SQL query dynamically based on the database type
-        $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
-
-        // $bindings = ($this->command === 'CALL')
-        //     ? ((!empty($this->params)) ? " (" . $this->params . ");" : "")
-        //     : ((!empty($this->params)) ? "" . $this->params : "");
+        $bindings = ($this->command === 'CALL')
+            // ? ($this->params ? " (" . $this->params . ");" : "();")
+            ? ($this->params ? " (" . $this->params . ");" : "")
+            : ($this->params ? " " . $this->params : "");
 
         // Construct the final query
         $this->query = $this->query . $bindings;
@@ -229,6 +266,13 @@ class StoredProcedure
         $dbConnection = $this->connection === ''
             ? $this->db::connection()
             : $this->db::connection($this->connection);
+
+        $this->logger()->info("Executing stored procedure", [
+            'query' => $this->query,
+            'values' => $this->values,
+            'use_transaction' => $this->use_transaction,
+            'connection' => $this->connection ?: 'default',
+        ]);
 
         try {
             if ($this->use_transaction) {
@@ -242,10 +286,20 @@ class StoredProcedure
             if ($this->use_transaction) {
                 $dbConnection->commit();
             }
+
+            $this->logger()->info("Stored procedure executed successfully");
         } catch (Throwable $throwable) {
             if ($this->use_transaction) {
                 $dbConnection->rollBack();
             }
+
+            $this->logger()->error("Stored procedure execution failed", [
+                'error' => $throwable->getMessage(),
+                'exception' => get_class($throwable),
+                'trace' => $throwable->getTraceAsString(),
+                'query' => $this->query,
+                'values' => $this->values,
+            ]);
 
             throw $throwable;
         }
@@ -265,8 +319,13 @@ class StoredProcedure
     public function stored_procedure_result()
     {
         if (!$this->is_execute_called) {
+            $this->logger()->error("Attempted to retrieve stored procedure result before execution");
             throw new Exception('You must call execute() before stored_procedure_result().');
         }
+
+        $this->logger()->debug("Returning stored procedure result", [
+            'records_found' => count($this->result ?? [])
+        ]);
 
         // Return results as a Laravel Collection or an empty Collection if no records were found
         return collect($this->result)->count() > 0
