@@ -218,7 +218,7 @@ class StoredProcedure
 
         // Construct the SQL query dynamically based on the database type
         $bindings = ($this->command === 'CALL')
-            ? ((!empty($this->params)) ? " (" . $this->params . ");" : "();")
+            ? ((!empty($this->params)) ? " (" . $this->params . ");" : "")
             : ((!empty($this->params)) ? " " . $this->params : "");
 
         // Construct the final query
