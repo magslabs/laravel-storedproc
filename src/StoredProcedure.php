@@ -214,12 +214,13 @@ class StoredProcedure
             throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
         }
 
-        // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
 
         // Construct the SQL query dynamically based on the database type
-        $bindings = ($this->command === 'CALL')
-            ? ((!empty($this->params)) ? " (" . $this->params . ");" : "")
-            : ((!empty($this->params)) ? " " . $this->params : "");
+        $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
+
+        // $bindings = ($this->command === 'CALL')
+        //     ? ((!empty($this->params)) ? " (" . $this->params . ");" : "")
+        //     : ((!empty($this->params)) ? "" . $this->params : "");
 
         // Construct the final query
         $this->query = $this->query . $bindings;
