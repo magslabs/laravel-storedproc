@@ -255,8 +255,8 @@ class StoredProcedure
 
         // Construct the SQL query dynamically based on the database type
         $bindings = ($this->command === 'CALL')
-            // ? ($this->params ? " (" . $this->params . ");" : "();")
-            ? ($this->params ? " (" . $this->params . ");" : "")
+            ? ($this->params ? " (" . $this->params . ");" : "();")
+            // ? ($this->params ? " (" . $this->params . ");" : "")
             : ($this->params ? " " . $this->params : "");
 
         // Construct the final query
@@ -305,6 +305,10 @@ class StoredProcedure
         }
 
         $this->is_execute_called = true;
+
+        // Auto-reset internal state but preserve result
+        $this->autoReset();
+
         return $this;
     }
 
@@ -331,5 +335,36 @@ class StoredProcedure
         return collect($this->result)->count() > 0
             ? Collection::make($this->result)
             : Collection::make([]);
+    }
+
+    /**
+     * Automatically reset internal state after execution.
+     * Prevents results from being overwritten by subsequent calls.
+     */
+    private function autoReset(): void
+    {
+        $preserved_result = $this->result;
+
+        $this->query = null;
+        $this->params = null;
+        $this->values = null;
+        $this->connection = null;
+        $this->use_transaction = false;
+
+        $this->is_sp_name_initialized = false;
+        $this->is_sp_params_initialized = false;
+        $this->is_sp_values_initialized = false;
+        $this->is_execute_called = false;
+
+        // Preserve result for later use
+        $this->result = $preserved_result;
+    }
+
+    // Optional manual reset method if full reset is ever needed
+    public function reset(): self
+    {
+        $this->autoReset();
+        $this->result = null;
+        return $this;
     }
 }
