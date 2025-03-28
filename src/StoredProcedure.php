@@ -306,9 +306,6 @@ class StoredProcedure
 
         $this->is_execute_called = true;
 
-        // Auto-reset internal state but preserve result
-        $this->autoReset();
-
         return $this;
     }
 
@@ -331,10 +328,15 @@ class StoredProcedure
             'records_found' => count($this->result ?? [])
         ]);
 
+        $result = $this->result;
+
+        $this->autoReset();
+
         // Return results as a Laravel Collection or an empty Collection if no records were found
-        return collect($this->result)->count() > 0
-            ? Collection::make($this->result)
-            : Collection::make([]);
+        // return collect($this->result)->count() > 0
+        //     ? Collection::make($this->result)
+        //     : Collection::make([]);
+        return $result->count() > 0 ? Collection::make($result) : Collection::make([]);
     }
 
     /**
