@@ -210,7 +210,7 @@ To log all stored procedure operations into a dedicated log file, add the follow
         'level' => 'debug',
     ],
 ],
-
+```
 
 <!-- ---
 
@@ -223,4 +223,3 @@ MIT License. © [Mark Angelo Sollano / magslabs]
 ## 🙌 Credits
 
 Created by [@masollano](https://github.com/masollano) on (https://github.com/magslabs/laravel-storedproc) -->
-```
