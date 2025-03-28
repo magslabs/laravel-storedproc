@@ -336,7 +336,7 @@ class StoredProcedure
         // return collect($this->result)->count() > 0
         //     ? Collection::make($this->result)
         //     : Collection::make([]);
-        return $result->count() > 0 ? Collection::make($result) : Collection::make([]);
+        return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
     }
 
     /**
