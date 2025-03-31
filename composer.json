@@ -28,7 +28,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "MagsLabs\\LaravelStoredProcedures\\Providers\\PaginationServiceProvider"
+                "MagsLabs\\LaravelStoredProc\\Providers\\PaginationServiceProvider"
             ]
         }
     },
