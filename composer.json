@@ -25,6 +25,13 @@
             "MagsLabs\\LaravelStoredProc\\": "src/"
         }
     },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "MagsLabs\\LaravelStoredProcedures\\Providers\\PaginationServiceProvider"
+            ]
+        }
+    },
     "minimum-stability": "stable",
     "prefer-stable": true
 }
