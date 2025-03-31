@@ -1,6 +1,6 @@
 <?php
 
-namespace MagsLabs\LaravelStoredProcedures\Providers;
+namespace MagsLabs\LaravelStoredProc\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Collection;
