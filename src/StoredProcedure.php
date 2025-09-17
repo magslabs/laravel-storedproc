@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 
 use Exception;
 use Throwable;
+use PDO;
 
 
 /**
@@ -53,6 +54,9 @@ class StoredProcedure
     protected $values;
     protected $connection;
     protected $result;
+
+    protected $output_params = [];
+    protected $output_results = [];
 
     protected bool $use_transaction = false;
     private bool $is_sp_name_initialized = false;
@@ -203,6 +207,22 @@ class StoredProcedure
     }
 
     /**
+     * Declare the output parameters. [Optional]
+     *
+     * This method tells the library which parameters should be treated as output variables.
+     * The names must match the ones provided in `stored_procedure_params()`, including the '@'.
+     *
+     * @param array $params An array of output parameter names (e.g., ['@out_param1', '@out_param2']).
+     * @return self Provides method chaining.
+     */
+    public function stored_procedure_output_params(array $output_params = []): self
+    {
+        $this->output_params = $output_params ?? [];
+        $this->logger()->debug("Output parameters set", ['output_params' => $output_params]);
+        return $this;
+    }
+
+    /**
      * Enable database transaction wrapping during stored procedure execution. [Optional]
      *
      * ⚠️ **Use this only if your stored procedure does NOT handle its own transactions.**
@@ -270,6 +290,7 @@ class StoredProcedure
         $this->logger()->info("Executing stored procedure", [
             'query' => $this->query,
             'values' => $this->values,
+            'output_params' => $this->output_params,
             'use_transaction' => $this->use_transaction,
             'connection' => $this->connection ?: 'default',
         ]);
@@ -279,9 +300,28 @@ class StoredProcedure
                 $dbConnection->beginTransaction();
             }
 
-            $this->result = empty($this->values)
-                ? $dbConnection->select($this->query)
-                : $dbConnection->select($this->query, $this->values);
+            // This block is for output parameters only if they are set
+            if (!empty($this->output_params)) {
+                // Get the PDO instance from the database connection
+                $pdo = $dbConnection->getPdo();
+
+                // Perpare and execute the stored procedure call
+                $stmt = $pdo->prepare($this->query);
+                $stmt->execute($this->values);
+
+                // Fetch the main result set, if any
+                $this->result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $stmt->closeCursor();
+
+                // Now, execute the second query to get the output parameter values
+                $select_output_params_query = 'SELECT ' . implode(', ', $this->output_params);
+                $output_stmt = $pdo->query($select_output_params_query);
+                $this->output_results = $output_stmt->fetchAll(PDO::FETCH_ASSOC);
+            } else {
+                $this->result = empty($this->values)
+                    ? $dbConnection->select($this->query)
+                    : $dbConnection->select($this->query, $this->values);
+            }
 
             if ($this->use_transaction) {
                 $dbConnection->commit();
@@ -339,6 +379,20 @@ class StoredProcedure
         return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
     }
 
+    public function stored_procedure_output_results()
+    {
+        if (!$this->is_execute_called) {
+            $this->logger()->error("Attempted to retrieve output params before execution");
+            throw new Exception('You must call execute() before get_output_params().');
+        }
+    
+        $this->logger()->debug("Returning output parameters as a Collection", [
+            'output_results' => $this->output_results
+        ]);
+    
+        return collect($this->output_results)->count() > 0 ? Collection::make($this->output_results) : Collection::make([]);
+    }
+
     /**
      * Automatically reset internal state after execution.
      * Prevents results from being overwritten by subsequent calls.
@@ -346,12 +400,14 @@ class StoredProcedure
     private function autoReset(): void
     {
         $preserved_result = $this->result;
+        $preserved_output_results = $this->output_results;
 
         $this->query = null;
         $this->params = null;
         $this->values = null;
         $this->connection = null;
         $this->use_transaction = false;
+        $this->output_params = [];
 
         $this->is_sp_name_initialized = false;
         $this->is_sp_params_initialized = false;
@@ -360,6 +416,7 @@ class StoredProcedure
 
         // Preserve result for later use
         $this->result = $preserved_result;
+        $this->output_results = $preserved_output_results;
     }
 
     // Optional manual reset method if full reset is ever needed
@@ -367,6 +424,7 @@ class StoredProcedure
     {
         $this->autoReset();
         $this->result = null;
+        $this->output_results = [];
         return $this;
     }
 }
