@@ -357,7 +357,7 @@ class StoredProcedure
      * @return Collection|array The stored procedure result as a collection or an array.
      * @throws Exception If `execute()` was not called first.
      */
-    public function stored_procedure_result()
+    public function stored_procedure_result(): Collection|array
     {
         if (!$this->is_execute_called) {
             $this->logger()->error("Attempted to retrieve stored procedure result before execution");
@@ -379,7 +379,7 @@ class StoredProcedure
         return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
     }
 
-    public function stored_procedure_output_results()
+    public function stored_procedure_output_results(): Collection|array
     {
         if (!$this->is_execute_called) {
             $this->logger()->error("Attempted to retrieve output params before execution");
