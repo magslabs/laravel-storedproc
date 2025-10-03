@@ -258,6 +258,96 @@ class StoredProcedure
      * @return self Provides method chaining.
      * @throws Exception If `stored_procedure()` was not called first.
      */
+    // public function execute(): self
+    // {
+    //     if (!$this->is_sp_name_initialized) {
+    //         $this->logger()->error("execute() called before stored_procedure()");
+    //         throw new Exception('You must call stored_procedure() before execute().');
+    //     }
+
+    //     // If params are set, values must also be set.
+    //     if ($this->is_sp_params_initialized && !$this->is_sp_values_initialized) {
+    //         $this->logger()->error("stored_procedure_values() missing after stored_procedure_params()");
+    //         throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
+    //     }
+
+    //     // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
+
+    //     // Construct the SQL query dynamically based on the database type
+    //     $bindings = ($this->command === 'CALL')
+    //         ? ($this->params ? " (" . $this->params . ");" : "();")
+    //         // ? ($this->params ? " (" . $this->params . ");" : "")
+    //         : ($this->params ? " " . $this->params : "");
+
+    //     // Construct the final query
+    //     $this->query = $this->query . $bindings;
+
+    //     // Checks if a specific database connection is set, otherwise use the default connection
+    //     $dbConnection = $this->connection === ''
+    //         ? $this->db::connection()
+    //         : $this->db::connection($this->connection);
+
+    //     $this->logger()->info("Executing stored procedure", [
+    //         'query' => $this->query,
+    //         'values' => $this->values,
+    //         'output_params' => $this->output_params,
+    //         'use_transaction' => $this->use_transaction,
+    //         'connection' => $this->connection ?: 'default',
+    //     ]);
+
+    //     try {
+    //         if ($this->use_transaction) {
+    //             $dbConnection->beginTransaction();
+    //         }
+
+    //         // This block is for output parameters only if they are set
+    //         if (!empty($this->output_params)) {
+    //             // Get the PDO instance from the database connection
+    //             $pdo = $dbConnection->getPdo();
+
+    //             // Perpare and execute the stored procedure call
+    //             $stmt = $pdo->prepare($this->query);
+    //             $stmt->execute($this->values);
+
+    //             // Fetch the main result set, if any
+    //             $this->result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    //             $stmt->closeCursor();
+
+    //             // Now, execute the second query to get the output parameter values
+    //             $select_output_params_query = 'SELECT ' . implode(', ', $this->output_params);
+    //             $output_stmt = $pdo->query($select_output_params_query);
+    //             $this->output_results = $output_stmt->fetchAll(PDO::FETCH_ASSOC);
+    //         } else {
+    //             $this->result = empty($this->values)
+    //                 ? $dbConnection->select($this->query)
+    //                 : $dbConnection->select($this->query, $this->values);
+    //         }
+
+    //         if ($this->use_transaction) {
+    //             $dbConnection->commit();
+    //         }
+
+    //         $this->logger()->info("Stored procedure executed successfully");
+    //     } catch (Throwable $throwable) {
+    //         if ($this->use_transaction) {
+    //             $dbConnection->rollBack();
+    //         }
+
+    //         $this->logger()->error("Stored procedure execution failed", [
+    //             'error' => $throwable->getMessage(),
+    //             'exception' => get_class($throwable),
+    //             'trace' => $throwable->getTraceAsString(),
+    //             'query' => $this->query,
+    //             'values' => $this->values,
+    //         ]);
+
+    //         throw $throwable;
+    //     }
+
+    //     $this->is_execute_called = true;
+
+    //     return $this;
+    // }
     public function execute(): self
     {
         if (!$this->is_sp_name_initialized) {
@@ -271,18 +361,30 @@ class StoredProcedure
             throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
         }
 
-        // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
-
-        // Construct the SQL query dynamically based on the database type
+        // Construct bindings
         $bindings = ($this->command === 'CALL')
             ? ($this->params ? " (" . $this->params . ");" : "();")
-            // ? ($this->params ? " (" . $this->params . ");" : "")
             : ($this->params ? " " . $this->params : "");
 
-        // Construct the final query
-        $this->query = $this->query . $bindings;
+        $spCall = $this->query . $bindings;
 
-        // Checks if a specific database connection is set, otherwise use the default connection
+        // If OUTPUT params exist, wrap with DECLARE + EXEC + SELECT
+        if (!empty($this->output_params) && $this->command === 'EXEC') {
+            $declareStmts = [];
+            foreach ($this->output_params as $param) {
+                $declareStmts[] = "DECLARE $param BIT;";
+            }
+
+            $selectStmts = "SELECT " . implode(", ", $this->output_params) . ";";
+
+            $this->query = implode("\n", $declareStmts) . "\n" .
+                $spCall . "\n" .
+                $selectStmts;
+        } else {
+            $this->query = $spCall;
+        }
+
+        // DB connection
         $dbConnection = $this->connection === ''
             ? $this->db::connection()
             : $this->db::connection($this->connection);
@@ -300,28 +402,12 @@ class StoredProcedure
                 $dbConnection->beginTransaction();
             }
 
-            // This block is for output parameters only if they are set
-            if (!empty($this->output_params)) {
-                // Get the PDO instance from the database connection
-                $pdo = $dbConnection->getPdo();
+            $pdo = $dbConnection->getPdo();
+            $stmt = $pdo->prepare($this->query);
+            $stmt->execute($this->values);
 
-                // Perpare and execute the stored procedure call
-                $stmt = $pdo->prepare($this->query);
-                $stmt->execute($this->values);
-
-                // Fetch the main result set, if any
-                $this->result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                $stmt->closeCursor();
-
-                // Now, execute the second query to get the output parameter values
-                $select_output_params_query = 'SELECT ' . implode(', ', $this->output_params);
-                $output_stmt = $pdo->query($select_output_params_query);
-                $this->output_results = $output_stmt->fetchAll(PDO::FETCH_ASSOC);
-            } else {
-                $this->result = empty($this->values)
-                    ? $dbConnection->select($this->query)
-                    : $dbConnection->select($this->query, $this->values);
-            }
+            $this->result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $stmt->closeCursor();
 
             if ($this->use_transaction) {
                 $dbConnection->commit();
@@ -348,6 +434,7 @@ class StoredProcedure
 
         return $this;
     }
+
 
     /**
      * Retrieve the result of the stored procedure. [Required]
