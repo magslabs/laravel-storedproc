@@ -421,36 +421,47 @@ class StoredProcedure
             $pdo = $db_connection->getPdo();
 
             if (! empty($this->output_params) && $this->command === 'EXEC') {
-                // ✅ OUTPUT param mode
+                // ✅ OUTPUT param mode for SQL Server
                 $declareStmts = [];
                 $execCall = $sp_call;
                 $selectStmts = [];
-
+            
                 foreach ($this->output_params as $param => $type) {
                     $cleanParam = trim(str_replace('OUTPUT', '', $param));
                     $declareStmts[] = "DECLARE $cleanParam $type;";
                     $selectStmts[] = "$cleanParam AS ".ltrim($cleanParam, '@');
+            
+                    // Add OUTPUT to the EXEC call *only if not already there*
+                    $execCall = preg_replace(
+                        '/(' . preg_quote($cleanParam, '/') . ')(?!\s+OUTPUT\b)/i',
+                        '$1 OUTPUT',
+                        $execCall,
+                        1 // replace once per param
+                    );
                 }
-
+            
                 $fullQuery = implode("\n", $declareStmts)."\n"
                     .$execCall."\n"
                     .'SELECT '.implode(', ', $selectStmts).';';
-
-                $this->logger()->debug('Executing OUTPUT param query', [
+            
+                $this->logger()->debug('Executing SQL Server OUTPUT param query', [
                     'query' => $fullQuery,
                     'values' => $this->values,
                 ]);
-
+            
                 // Execute
                 $stmt = $pdo->prepare($fullQuery);
                 $stmt->execute($this->values);
-
-                // ✅ Capture OUTPUT scalars separately
+            
+                // Advance to the first result set that actually has columns
+                while ($stmt->columnCount() === 0 && $stmt->nextRowset()) {
+                    // keep advancing
+                }
+            
+                // ✅ Capture OUTPUT scalars from the SELECT
                 $this->output_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-                $stmt->closeCursor();
-
-                // Keep result empty if no dataset expected
+            
+                // No tabular dataset expected in this mode
                 $this->result = [];
             } else {
                 // ✅ Normal mode (no OUTPUT params) → return dataset
@@ -458,6 +469,7 @@ class StoredProcedure
                     ? $db_connection->select($sp_call)
                     : $db_connection->select($sp_call, $this->values);
             }
+            
 
             if ($this->use_transaction) {
                 $db_connection->commit();
@@ -546,7 +558,6 @@ class StoredProcedure
             'output' => $this->normalizeOutput($outputs),
         ];
     }
-
 
     /**
      * Normalize the output parameters.
