@@ -2,15 +2,15 @@
 
 namespace MagsLabs\LaravelStoredProc\Providers;
 
-use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Collection;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
+use Illuminate\Support\ServiceProvider;
 
 class PaginationServiceProvider extends ServiceProvider
 {
     public function boot()
     {
-        if (!Collection::hasMacro('paginate')) {
+        if (! Collection::hasMacro('paginate')) {
             Collection::macro('paginate', function ($perPage = 15, $page = null, $pageName = 'page') {
                 $page = $page ?: LengthAwarePaginator::resolveCurrentPage($pageName);
                 $items = $this->forPage($page, $perPage);
