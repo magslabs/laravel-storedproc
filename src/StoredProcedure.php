@@ -535,17 +535,18 @@ class StoredProcedure
 
         $this->autoReset();
 
-        // If output params are not set, return the result as a collection
-        if (empty($this->output_params)) {
+        // ✅ If no outputs captured, return just the dataset as a Collection
+        if (empty($outputs)) {
             return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
         }
 
-        // If output params are set, return the result as an object with `result` + `output`
+        // ✅ If outputs exist, return object { result, output }
         return (object) [
             'result' => collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]),
             'output' => $this->normalizeOutput($outputs),
         ];
     }
+
 
     /**
      * Normalize the output parameters.
