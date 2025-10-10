@@ -35,44 +35,101 @@ use Throwable;
  *
  * @method static self stored_procedure(string $procedure) Set the stored procedure name (Required, must be called first).
  * @method static self stored_procedure_connection(string $connection) Set a specific database connection (Optional).
- * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters (Optional, required if the procedure has parameters).
- * @method static self stored_procedure_values(array $values) Set procedure values corresponding to parameters (Optional, required if parameters exist).
+ * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters including OUTPUT params with OUTPUT keyword (Optional, required if the procedure has parameters).
+ * @method static self stored_procedure_values(array $values) Set procedure values for input parameters only (Optional, required if input parameters exist).
+ * @method static self stored_procedure_output_params(array $output_params) Define SQL types for OUTPUT parameters (Optional, SQL Server only).
  * @method static self with_transaction(bool $value = true) Optionally wrap the procedure in a Laravel-managed transaction.
  * @method static self execute() Execute the stored procedure (Required, must be called last).
- * @method static Collection|array stored_procedure_result() Retrieve the stored procedure result (Required).
+ * @method static mixed stored_procedure_result() Retrieve the stored procedure result as Collection or object with result/output properties (Required).
+ * @method static mixed stored_procedure_output_results() Retrieve only OUTPUT parameter results (Optional, SQL Server only).
+ * @method static self reset() Manually reset the instance state (Optional).
  */
 class StoredProcedure
 {
+    /**
+     * @var string The database facade class
+     */
     protected $db;
 
+    /**
+     * @var string The database driver (mysql, sqlsrv, etc.)
+     */
     protected $db_driver;
 
+    /**
+     * @var string The SQL command to execute (CALL for MySQL, EXEC for SQL Server)
+     */
     protected $command;
 
+    /**
+     * @var string|null The constructed SQL query
+     */
     protected $query;
 
+    /**
+     * @var string|null The parameter string for the stored procedure
+     */
     protected $params;
 
+    /**
+     * @var array The parameter values to bind
+     */
     protected $values;
 
+    /**
+     * @var string|null The database connection name
+     */
     protected $connection;
 
+    /**
+     * @var array The stored procedure execution result
+     */
     protected $result;
 
+    /**
+     * @var array OUTPUT parameter definitions with SQL types
+     */
     protected $output_params = [];
 
+    /**
+     * @var array OUTPUT parameter results after execution
+     */
     protected $output_results = [];
 
+    /**
+     * @var bool Whether to wrap execution in a transaction
+     */
     protected bool $use_transaction = false;
 
+    /**
+     * @var bool Whether the stored procedure name has been initialized
+     */
     private bool $is_sp_name_initialized = false;
 
+    /**
+     * @var bool Whether the stored procedure parameters have been initialized
+     */
     private bool $is_sp_params_initialized = false;
 
+    /**
+     * @var bool Whether the stored procedure values have been initialized
+     */
     private bool $is_sp_values_initialized = false;
 
+    /**
+     * @var bool Whether the execute method has been called
+     */
     private bool $is_execute_called = false;
 
+    /**
+     * Get the logger instance for this package.
+     *
+     * Attempts to use the dedicated log channel, falls back to error log if not configured.
+     *
+     * @return \Psr\Log\LoggerInterface The logger instance.
+     *
+     * @since 1.0.0
+     */
     protected function logger()
     {
         try {
@@ -85,6 +142,16 @@ class StoredProcedure
         }
     }
 
+    /**
+     * Initialize the StoredProcedure instance.
+     *
+     * Automatically detects the database driver and sets the appropriate command:
+     * - MySQL: Uses 'CALL' command
+     * - SQL Server: Uses 'EXEC' command
+     * - Default: Falls back to 'CALL' (MySQL behavior)
+     *
+     * @since 1.0.0
+     */
     public function __construct()
     {
         $this->db = DB::class;
@@ -111,6 +178,10 @@ class StoredProcedure
      *
      * @param  string  $procedure  The stored procedure name.
      * @return self Provides method chaining.
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure(string $procedure = ''): self
     {
@@ -129,6 +200,10 @@ class StoredProcedure
      *
      * @param  string  $connection  The connection name (e.g., 'mysql', 'pgsql', 'sqlsrv').
      * @return self Provides method chaining.
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure_connection(string $connection = ''): self
     {
@@ -144,10 +219,28 @@ class StoredProcedure
      *
      * This method **must be called after** `stored_procedure()` if parameters are required.
      *
+     * For OUTPUT parameters (SQL Server only), include them with the OUTPUT keyword:
+     * ->stored_procedure_params([':input_param', '@output_param OUTPUT'])
+     *
      * @param  array|Request|FormRequest  $params  Procedure parameters as an array, Request, or FormRequest.
+     *                                             For SQL Server OUTPUT parameters, include with 'OUTPUT' keyword.
      * @return self Provides method chaining.
      *
      * @throws Exception If `stored_procedure()` was not called first.
+     *
+     * @example
+     * // Basic parameters
+     * ->stored_procedure_params([':id', ':name'])
+     *
+     * // With OUTPUT parameters (SQL Server)
+     * ->stored_procedure_params([':user_id', '@result OUTPUT', '@message OUTPUT'])
+     *
+     * // From Request object
+     * ->stored_procedure_params($request)
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure_params(array|Request|FormRequest $params = []): self
     {
@@ -197,6 +290,10 @@ class StoredProcedure
      * @return self Provides method chaining.
      *
      * @throws Exception If `stored_procedure_params()` was not called first.
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure_values(array $values = []): self
     {
@@ -225,11 +322,24 @@ class StoredProcedure
      * You may pass either a simple array of names (defaulting to BIT),
      * or an associative array mapping parameter names to SQL types.
      *
-     * Examples:
-     * ->stored_procedure_output_params(['@result']) // default BIT
-     * ->stored_procedure_output_params(['@result' => 'BIT', '@message' => 'VARCHAR(255)'])
-     *
+     * @param  array  $output_params  OUTPUT parameter definitions with SQL types.
      * @return self Provides method chaining.
+     *
+     * @example
+     * // Simple array (defaults to BIT type)
+     * ->stored_procedure_output_params(['@result', '@status'])
+     *
+     * // Associative array with specific types
+     * ->stored_procedure_output_params([
+     *     '@result' => 'INT',
+     *     '@message' => 'VARCHAR(255)',
+     *     '@success' => 'BIT',
+     *     '@created_date' => 'DATETIME'
+     * ])
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure_output_params(array $output_params = []): self
     {
@@ -270,6 +380,10 @@ class StoredProcedure
      *
      * @param  bool  $value  Whether to wrap the execution in a Laravel-managed transaction. Default is true.
      * @return self Provides method chaining.
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function with_transaction(bool $use_transaction = true): self
     {
@@ -288,6 +402,10 @@ class StoredProcedure
      * @return self Provides method chaining.
      *
      * @throws Exception If `stored_procedure()` was not called first.
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
 
     // Commented out because there is an optimized version of this method below
@@ -425,42 +543,42 @@ class StoredProcedure
                 $declareStmts = [];
                 $execCall = $sp_call;
                 $selectStmts = [];
-            
+
                 foreach ($this->output_params as $param => $type) {
                     $cleanParam = trim(str_replace('OUTPUT', '', $param));
                     $declareStmts[] = "DECLARE $cleanParam $type;";
                     $selectStmts[] = "$cleanParam AS ".ltrim($cleanParam, '@');
-            
+
                     // Add OUTPUT to the EXEC call *only if not already there*
                     $execCall = preg_replace(
-                        '/(' . preg_quote($cleanParam, '/') . ')(?!\s+OUTPUT\b)/i',
+                        '/('.preg_quote($cleanParam, '/').')(?!\s+OUTPUT\b)/i',
                         '$1 OUTPUT',
                         $execCall,
                         1 // replace once per param
                     );
                 }
-            
+
                 $fullQuery = implode("\n", $declareStmts)."\n"
                     .$execCall."\n"
                     .'SELECT '.implode(', ', $selectStmts).';';
-            
+
                 $this->logger()->debug('Executing SQL Server OUTPUT param query', [
                     'query' => $fullQuery,
                     'values' => $this->values,
                 ]);
-            
+
                 // Execute
                 $stmt = $pdo->prepare($fullQuery);
                 $stmt->execute($this->values);
-            
+
                 // Advance to the first result set that actually has columns
                 while ($stmt->columnCount() === 0 && $stmt->nextRowset()) {
                     // keep advancing
                 }
-            
+
                 // ✅ Capture OUTPUT scalars from the SELECT
                 $this->output_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
                 // No tabular dataset expected in this mode
                 $this->result = [];
             } else {
@@ -469,7 +587,6 @@ class StoredProcedure
                     ? $db_connection->select($sp_call)
                     : $db_connection->select($sp_call, $this->values);
             }
-            
 
             if ($this->use_transaction) {
                 $db_connection->commit();
@@ -502,9 +619,28 @@ class StoredProcedure
      *
      * This method **must be called after** `execute()`.
      *
-     * @return Collection|array The stored procedure result as a collection or an array.
+     * Returns different types based on whether OUTPUT parameters are used:
+     * - Without OUTPUT params: Laravel Collection
+     * - With OUTPUT params: Object with 'result' (Collection) and 'output' (scalar/object) properties
+     *
+     * @return Collection|object The stored procedure result.
+     *                           - Collection: When no OUTPUT parameters are used
+     *                           - object: When OUTPUT parameters are used, contains 'result' and 'output' properties
      *
      * @throws Exception If `execute()` was not called first.
+     *
+     * @example
+     * // Without OUTPUT parameters
+     * $users = $result->stored_procedure_result(); // Collection
+     *
+     * // With OUTPUT parameters
+     * $response = $result->stored_procedure_result();
+     * $data = $response->result;    // Collection
+     * $count = $response->output;   // Scalar or object
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
 
     // Commented out because it was returning a collection or an array
@@ -562,8 +698,14 @@ class StoredProcedure
     /**
      * Normalize the output parameters.
      *
+     * Converts the raw output parameter array into a more usable format:
+     * - Single parameter: Returns scalar value
+     * - Multiple parameters: Returns object with property access
+     *
      * @param  array  $outputs  The output parameters.
      * @return mixed Scalar (int/string/etc.), object (stdClass), or null
+     *
+     * @since 1.0.0
      */
     private function normalizeOutput(array $outputs): mixed
     {
@@ -592,6 +734,19 @@ class StoredProcedure
      * @return mixed Scalar (int/string/etc.), object (stdClass), or null
      *
      * @throws Exception If execute() was not called first.
+     *
+     * @example
+     * // Single OUTPUT parameter
+     * $count = $result->stored_procedure_output_results(); // Scalar value
+     *
+     * // Multiple OUTPUT parameters
+     * $outputs = $result->stored_procedure_output_results();
+     * $success = $outputs->success;    // Property access
+     * $message = $outputs->message;    // Property access
+     *
+     * @api
+     *
+     * @since 1.0.0
      */
     public function stored_procedure_output_results(): mixed
     {
@@ -622,7 +777,11 @@ class StoredProcedure
 
     /**
      * Automatically reset internal state after execution.
-     * Prevents results from being overwritten by subsequent calls.
+     *
+     * Prevents results from being overwritten by subsequent calls while preserving
+     * the current execution results for later access.
+     *
+     * @since 1.0.0
      */
     private function autoReset(): void
     {
@@ -646,7 +805,24 @@ class StoredProcedure
         $this->output_results = $preserved_output_results;
     }
 
-    // Optional manual reset method if full reset is ever needed
+    /**
+     * Manually reset the instance state.
+     *
+     * This method clears all internal state and results, allowing the instance
+     * to be reused for a new stored procedure call.
+     *
+     * @return self Provides method chaining.
+     *
+     * @example
+     * $sp = new StoredProcedure();
+     * $sp->stored_procedure('proc1')->execute()->stored_procedure_result();
+     * $sp->reset(); // Clear state for reuse
+     * $sp->stored_procedure('proc2')->execute()->stored_procedure_result();
+     *
+     * @api
+     *
+     * @since 1.0.0
+     */
     public function reset(): self
     {
         $this->autoReset();

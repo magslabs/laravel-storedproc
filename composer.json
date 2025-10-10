@@ -1,8 +1,8 @@
 {
     "name": "magslabs/laravel-storedproc",
     "type": "library",
-    "keywords": ["magslabs", "laravel", "stored procedure"],
-    "description": "This is a custom package for Laravel to utilize/use stored procedures on your laravel application.",
+    "keywords": ["magslabs", "laravel", "stored-procedure", "stored-procedures", "database", "mysql", "sql-server", "pagination", "output-parameters", "transactions"],
+    "description": "A fluent Laravel package for calling stored procedures with support for OUTPUT parameters, pagination, and transactions.",
     "license": "MIT",
     "authors": [
         {
