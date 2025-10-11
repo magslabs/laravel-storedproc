@@ -6,21 +6,21 @@ In many real-world applications, especially enterprise systems, stored procedure
 
 This package simplifies that.
 
-## ✨ Features
+## Features
 
-- ✅ Fluent, chainable syntax for stored procedure calls
-- 🧠 Parameter binding from arrays or Laravel requests
-- ♻️ Optional Laravel-managed transaction support
-- 🔌 Works with MySQL and SQL Server
-- 💥 Exception-safe with automatic rollback on failure
-- 📤 **NEW:** OUTPUT parameter support for SQL Server and MySQL stored procedures
-- 📄 **NEW:** Built-in pagination macro for Laravel Collections
-- 🔍 Enhanced logging with dedicated log channel
-- 🎯 Smart result handling (datasets + OUTPUT parameters)
+- Fluent, chainable syntax for stored procedure calls
+- Parameter binding from arrays or Laravel requests
+- Optional Laravel-managed transaction support
+- Works with MySQL and SQL Server
+- Exception-safe with automatic rollback on failure
+- **NEW:** OUTPUT parameter support for SQL Server and MySQL stored procedures
+- **NEW:** Built-in pagination macro for Laravel Collections
+- Enhanced logging with dedicated log channel
+- Smart result handling (datasets + OUTPUT parameters)
 
 ---
 
-## 📦 Installation
+## Installation
 
 You can install the package via Composer:
 
@@ -32,7 +32,7 @@ The package will automatically register the `PaginationServiceProvider` to enabl
 
 ---
 
-## 🚀 Basic Usage
+## Basic Usage
 
 ```php
 use MagsLabs\LaravelStoredProc\StoredProcedure;
@@ -107,7 +107,7 @@ The result is returned as a Laravel Collection for easy chaining and manipulatio
 
 ---
 
-## 🧩 Parameters & Values
+## Parameters & Values
 
 You can pass parameters in multiple formats:
 
@@ -123,7 +123,7 @@ You can pass parameters in multiple formats:
 
 ---
 
-## ♻️ Transaction Support
+## Transaction Support
 
 Enable Laravel-managed transactions like so:
 
@@ -133,11 +133,11 @@ Enable Laravel-managed transactions like so:
 
 Laravel will automatically commit on success or roll back if the procedure throws an error.
 
-> ⚠️ Use this **only if** your stored procedure does **not** manage its own transactions (`BEGIN`, `COMMIT`, etc.).
+> **Warning:** Use this **only if** your stored procedure does **not** manage its own transactions (`BEGIN`, `COMMIT`, etc.).
 
 ---
 
-## 📤 OUTPUT Parameters (SQL Server & MySQL)
+## OUTPUT Parameters (SQL Server & MySQL)
 
 For stored procedures that return OUTPUT/OUT parameters, you can capture them using the `stored_procedure_output_params()` method:
 
@@ -276,7 +276,7 @@ $data = $response->result; // Laravel Collection
 
 ---
 
-## 📄 Pagination Support
+## Pagination Support
 
 The package includes a built-in pagination macro for Laravel Collections, making it easy to paginate stored procedure results:
 
@@ -314,7 +314,7 @@ $results = $storedProcResult->paginate(
 
 ---
 
-## 🧪 Example: Full Workflow
+## Example: Full Workflow
 
 ```php
 use MagsLabs\LaravelStoredProc\StoredProcedure;
@@ -417,7 +417,7 @@ This is useful when you want to inject the instance or reuse it across multiple 
 
 ---
 
-## 🌐 Switching Database Connections
+## Switching Database Connections
 
 Need to call a stored procedure on a different connection/database?
 
@@ -429,7 +429,7 @@ This uses Laravel’s connection from `config/database.php`.
 
 ---
 
-## ⚠️ Common Gotchas
+## Common Gotchas
 
 - You **must** call methods in this order:
 
@@ -453,7 +453,7 @@ This uses Laravel’s connection from `config/database.php`.
 
 ---
 
-## ✅ Compatibility
+## Compatibility
 
 - **PHP**: 8.0, 8.1, 8.2, 8.3, 8.4
 - **Laravel**: 9.x, 10.x, 11.x, 12.x
@@ -475,7 +475,7 @@ This uses Laravel’s connection from `config/database.php`.
 
 ---
 
-## 🚀 Advanced Usage
+## Advanced Usage
 
 ### Complex Stored Procedure with Multiple OUTPUT/OUT Parameters
 
@@ -632,11 +632,11 @@ class UserService
 
 ---
 
-## 🔍 Logging Stored Procedure Executions
+## Logging Stored Procedure Executions
 
 This package includes built-in logging to help trace and debug stored procedure execution.
 
-### ✨ Enable a Custom Log File
+### Enable a Custom Log File
 
 To log all stored procedure operations into a dedicated log file, add the following channel to your Laravel app’s `config/logging.php`:
 

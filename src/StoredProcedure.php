@@ -30,7 +30,7 @@ use Throwable;
  * You may call `->with_transaction()` in the chain to wrap the stored procedure in a database transaction.
  * Laravel will automatically `commit()` or `rollBack()` the transaction based on success or failure.
  *
- * ⚠️ Only use this if your stored procedure does **not** contain its own transaction logic
+ * Only use this if your stored procedure does **not** contain its own transaction logic
  * (e.g., it does **not** use `BEGIN TRANSACTION`, `COMMIT`, or `ROLLBACK` internally).
  *
  * @method static self stored_procedure(string $procedure) Set the stored procedure name (Required, must be called first).
@@ -370,16 +370,16 @@ class StoredProcedure
     /**
      * Enable database transaction wrapping during stored procedure execution. [Optional]
      *
-     * ⚠️ **Use this only if your stored procedure does NOT handle its own transactions.**
+     * **Use this only if your stored procedure does NOT handle its own transactions.**
      *
      * Laravel will begin a transaction before executing the procedure and commit it after execution.
      * If the procedure throws an error, the transaction will be rolled back automatically.
      *
-     * #### ✅ Recommended Use:
+     * #### Recommended Use:
      * - When your stored procedure performs multiple DML operations (INSERT, UPDATE, DELETE) **but does not manage transactions internally.**
      * - When you want Laravel to handle rollback automatically on exceptions.
      *
-     * #### ⚠️ Avoid When:
+     * #### Avoid When:
      * - The stored procedure already includes `BEGIN TRANSACTION`, `COMMIT`, or `ROLLBACK`.
      * - You're calling nested stored procedures that manage their own transactions.
      *
@@ -544,7 +544,7 @@ class StoredProcedure
             $pdo = $db_connection->getPdo();
 
             if (! empty($this->output_params) && $this->command === 'EXEC') {
-                // ✅ OUTPUT param mode for SQL Server
+                // OUTPUT param mode for SQL Server
                 $declareStmts = [];
                 $execCall = $sp_call;
                 $selectStmts = [];
@@ -582,19 +582,19 @@ class StoredProcedure
                     // keep advancing
                 }
 
-                // ✅ Capture OUTPUT scalars from the SELECT
+                // Capture OUTPUT scalars from the SELECT
                 $this->output_results = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 // No tabular dataset expected in this mode
                 $this->result = [];
             } elseif (! empty($this->output_params) && $this->command === 'CALL') {
-                // ✅ Step 1: Initialize MySQL session variables
+                // Initialize MySQL session variables
                 foreach ($this->output_params as $param => $type) {
                     $cleanParam = trim(str_replace('OUT', '', $param));
                     $db_connection->statement("SET @$cleanParam = NULL");
                 }
                 
-                // ✅ Step 2: Execute the CALL statement (without OUT keywords)
+                // Execute the CALL statement (without OUT keywords)
                 // Remove any OUT keywords that might be in the original call
                 $cleanCall = $sp_call;
                 foreach ($this->output_params as $param => $type) {
@@ -616,7 +616,7 @@ class StoredProcedure
                 // Execute the stored procedure call
                 $db_connection->select($cleanCall, $this->values);
                 
-                // ✅ Step 3: Fetch OUTPUT variables separately
+                // Fetch OUTPUT variables separately
                 $selectStmts = [];
                 foreach ($this->output_params as $param => $type) {
                     $cleanParam = trim(str_replace('OUT', '', $param));
@@ -635,7 +635,7 @@ class StoredProcedure
                 $this->result = [];
 
             } else {
-                // ✅ Normal mode (no OUTPUT params) → return dataset
+                // Normal mode (no OUTPUT params) → return dataset
                 $this->result = empty($this->values)
                     ? $db_connection->select($sp_call)
                     : $db_connection->select($sp_call, $this->values);
@@ -736,12 +736,12 @@ class StoredProcedure
 
         $this->autoReset();
 
-        // ✅ If no outputs captured, return just the dataset as a Collection
+        // If no outputs captured, return just the dataset as a Collection
         if (empty($outputs)) {
             return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
         }
 
-        // ✅ If outputs exist, return object { result, output }
+        // If outputs exist, return object { result, output }
         return (object) [
             'result' => collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]),
             'output' => $this->normalizeOutput($outputs),
