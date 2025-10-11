@@ -37,11 +37,11 @@ use Throwable;
  * @method static self stored_procedure_connection(string $connection) Set a specific database connection (Optional).
  * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters including OUTPUT params with OUTPUT keyword (Optional, required if the procedure has parameters).
  * @method static self stored_procedure_values(array $values) Set procedure values for input parameters only (Optional, required if input parameters exist).
- * @method static self stored_procedure_output_params(array $output_params) Define SQL types for OUTPUT parameters (Optional, SQL Server only).
+ * @method static self stored_procedure_output_params(array $output_params) Define SQL types for OUTPUT/OUT parameters (Optional, SQL Server/MySQL).
  * @method static self with_transaction(bool $value = true) Optionally wrap the procedure in a Laravel-managed transaction.
  * @method static self execute() Execute the stored procedure (Required, must be called last).
  * @method static mixed stored_procedure_result() Retrieve the stored procedure result as Collection or object with result/output properties (Required).
- * @method static mixed stored_procedure_output_results() Retrieve only OUTPUT parameter results (Optional, SQL Server only).
+ * @method static mixed stored_procedure_output_results() Retrieve only OUTPUT/OUT parameter results (Optional, SQL Server/MySQL).
  * @method static self reset() Manually reset the instance state (Optional).
  */
 class StoredProcedure
@@ -219,11 +219,12 @@ class StoredProcedure
      *
      * This method **must be called after** `stored_procedure()` if parameters are required.
      *
-     * For OUTPUT parameters (SQL Server only), include them with the OUTPUT keyword:
-     * ->stored_procedure_params([':input_param', '@output_param OUTPUT'])
+     * For OUTPUT/OUT parameters (SQL Server/MySQL), include them with the appropriate keyword:
+     * ->stored_procedure_params([':input_param', '@output_param OUTPUT']) // SQL Server
+     * ->stored_procedure_params([':input_param', '@output_param OUT'])     // MySQL
      *
      * @param  array|Request|FormRequest  $params  Procedure parameters as an array, Request, or FormRequest.
-     *                                             For SQL Server OUTPUT parameters, include with 'OUTPUT' keyword.
+     *                                             For OUTPUT parameters, include with 'OUTPUT' (SQL Server) or 'OUT' (MySQL) keyword.
      * @return self Provides method chaining.
      *
      * @throws Exception If `stored_procedure()` was not called first.
@@ -234,6 +235,9 @@ class StoredProcedure
      *
      * // With OUTPUT parameters (SQL Server)
      * ->stored_procedure_params([':user_id', '@result OUTPUT', '@message OUTPUT'])
+     *
+     * // With OUT parameters (MySQL)
+     * ->stored_procedure_params([':user_id', '@result OUT', '@message OUT'])
      *
      * // From Request object
      * ->stored_procedure_params($request)
@@ -319,21 +323,22 @@ class StoredProcedure
      * Declare the output parameters. [Optional]
      *
      * This method tells the library which parameters should be treated as output variables.
-     * You may pass either a simple array of names (defaulting to BIT),
+     * You may pass either a simple array of names (defaulting to BIT for SQL Server, INT for MySQL),
      * or an associative array mapping parameter names to SQL types.
      *
-     * @param  array  $output_params  OUTPUT parameter definitions with SQL types.
+     * @param  array  $output_params  OUTPUT/OUT parameter definitions with SQL types.
      * @return self Provides method chaining.
      *
      * @example
-     * // Simple array (defaults to BIT type)
+     * // Simple array (defaults to BIT type for SQL Server, INT for MySQL)
      * ->stored_procedure_output_params(['@result', '@status'])
      *
      * // Associative array with specific types
      * ->stored_procedure_output_params([
      *     '@result' => 'INT',
      *     '@message' => 'VARCHAR(255)',
-     *     '@success' => 'BIT',
+     *     '@success' => 'BIT',        // SQL Server
+     *     '@success' => 'TINYINT',    // MySQL equivalent
      *     '@created_date' => 'DATETIME'
      * ])
      *
@@ -565,6 +570,7 @@ class StoredProcedure
                 $this->logger()->debug('Executing SQL Server OUTPUT param query', [
                     'query' => $fullQuery,
                     'values' => $this->values,
+                    'driver' => $this->db_driver,
                 ]);
 
                 // Execute
@@ -581,6 +587,53 @@ class StoredProcedure
 
                 // No tabular dataset expected in this mode
                 $this->result = [];
+            } elseif (! empty($this->output_params) && $this->command === 'CALL') {
+                // ✅ Step 1: Initialize MySQL session variables
+                foreach ($this->output_params as $param => $type) {
+                    $cleanParam = trim(str_replace('OUT', '', $param));
+                    $db_connection->statement("SET @$cleanParam = NULL");
+                }
+                
+                // ✅ Step 2: Execute the CALL statement (without OUT keywords)
+                // Remove any OUT keywords that might be in the original call
+                $cleanCall = $sp_call;
+                foreach ($this->output_params as $param => $type) {
+                    $cleanParam = trim(str_replace('OUT', '', $param));
+                    // Remove OUT keyword if it exists in the call
+                    $cleanCall = preg_replace(
+                        '/('.preg_quote($cleanParam, '/').')\s+OUT\b/i',
+                        '$1',
+                        $cleanCall
+                    );
+                }
+                
+                $this->logger()->debug('Executing MySQL OUT param query', [
+                    'call_query' => $cleanCall,
+                    'values' => $this->values,
+                    'driver' => $this->db_driver,
+                ]);
+                
+                // Execute the stored procedure call
+                $db_connection->select($cleanCall, $this->values);
+                
+                // ✅ Step 3: Fetch OUTPUT variables separately
+                $selectStmts = [];
+                foreach ($this->output_params as $param => $type) {
+                    $cleanParam = trim(str_replace('OUT', '', $param));
+                    $selectStmts[] = "@$cleanParam AS ".ltrim($cleanParam, '@');
+                }
+                
+                $selectQuery = 'SELECT '.implode(', ', $selectStmts);
+                
+                $this->logger()->debug('Fetching MySQL OUT parameters', [
+                    'select_query' => $selectQuery,
+                ]);
+                
+                $this->output_results = $db_connection->select($selectQuery);
+                
+                // No tabular dataset expected in this mode
+                $this->result = [];
+
             } else {
                 // ✅ Normal mode (no OUTPUT params) → return dataset
                 $this->result = empty($this->values)

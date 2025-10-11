@@ -13,7 +13,7 @@ This package simplifies that.
 - ♻️ Optional Laravel-managed transaction support
 - 🔌 Works with MySQL and SQL Server
 - 💥 Exception-safe with automatic rollback on failure
-- 📤 **NEW:** OUTPUT parameter support for SQL Server stored procedures
+- 📤 **NEW:** OUTPUT parameter support for SQL Server and MySQL stored procedures
 - 📄 **NEW:** Built-in pagination macro for Laravel Collections
 - 🔍 Enhanced logging with dedicated log channel
 - 🎯 Smart result handling (datasets + OUTPUT parameters)
@@ -63,7 +63,9 @@ $users = StoredProcedure::stored_procedure('get_all_users')
     ->paginate(15); // 15 items per page
 ```
 
-### With OUTPUT Parameters (SQL Server)
+### With OUTPUT Parameters (SQL Server & MySQL)
+
+**SQL Server Example:**
 
 ```php
 // SQL Server stored procedure with OUTPUT parameters
@@ -78,6 +80,25 @@ $result = StoredProcedure::stored_procedure('sp_get_user_stats')
     ->stored_procedure_result();
 
 // Access both dataset and OUTPUT parameters
+$users = $result->result;        // Laravel Collection
+$totalCount = $result->output;   // Scalar value
+```
+
+**MySQL Example:**
+
+```php
+// MySQL stored procedure with OUT parameters
+$result = StoredProcedure::stored_procedure('get_user_stats')
+    ->stored_procedure_params([
+        ':user_id',
+        '@total_count'
+    ])
+    ->stored_procedure_values([123]) // Only input values
+    ->stored_procedure_output_params(['@total_count' => 'INT'])
+    ->execute()
+    ->stored_procedure_result();
+
+// Access both dataset and OUT parameters
 $users = $result->result;        // Laravel Collection
 $totalCount = $result->output;   // Scalar value
 ```
@@ -116,9 +137,11 @@ Laravel will automatically commit on success or roll back if the procedure throw
 
 ---
 
-## 📤 OUTPUT Parameters (SQL Server)
+## 📤 OUTPUT Parameters (SQL Server & MySQL)
 
-For SQL Server stored procedures that return OUTPUT parameters, you can capture them using the `stored_procedure_output_params()` method:
+For stored procedures that return OUTPUT/OUT parameters, you can capture them using the `stored_procedure_output_params()` method:
+
+### SQL Server OUTPUT Parameters
 
 ```php
 // Define OUTPUT parameters in stored_procedure_params with OUTPUT keyword
@@ -145,9 +168,38 @@ echo $result->output->message;      // OUTPUT parameter value
 echo $result->result;               // Regular dataset (if any)
 ```
 
-### OUTPUT Parameter Usage
+### MySQL OUT Parameters
 
-**Step 1:** Include OUTPUT parameters in `stored_procedure_params()` with the `OUTPUT` keyword:
+```php
+// Define OUT parameters in stored_procedure_params (clean syntax)
+$result = StoredProcedure::stored_procedure('get_user_stats')
+    ->stored_procedure_params([
+        ':user_id',
+        '@total_users',
+        '@active_users',
+        '@message'
+    ])
+    ->stored_procedure_values([123]) // Only input values, OUT params are handled automatically
+    ->stored_procedure_output_params([
+        '@total_users' => 'INT',
+        '@active_users' => 'INT',
+        '@message' => 'VARCHAR(255)'
+    ])
+    ->execute()
+    ->stored_procedure_result();
+
+// Access the results
+echo $result->output->total_users;  // OUT parameter value
+echo $result->output->active_users; // OUT parameter value
+echo $result->output->message;      // OUT parameter value
+echo $result->result;               // Regular dataset (if any)
+```
+
+### OUTPUT/OUT Parameter Usage
+
+**Step 1:** Include OUTPUT/OUT parameters in `stored_procedure_params()` with the appropriate keyword:
+
+**For SQL Server:**
 
 ```php
 ->stored_procedure_params([
@@ -155,6 +207,17 @@ echo $result->result;               // Regular dataset (if any)
     ':statuscode',
     '@result OUTPUT',
     '@message OUTPUT'
+])
+```
+
+**For MySQL:**
+
+```php
+->stored_procedure_params([
+    ':api_service_id',
+    ':statuscode',
+    '@result',
+    '@message'
 ])
 ```
 
@@ -171,14 +234,15 @@ echo $result->result;               // Regular dataset (if any)
 **Step 2:** Define SQL types in `stored_procedure_output_params()`:
 
 ```php
-// Simple array (defaults to BIT type)
+// Simple array (defaults to BIT type for SQL Server, INT for MySQL)
 ->stored_procedure_output_params(['@result', '@status'])
 
 // Associative array with specific types
 ->stored_procedure_output_params([
     '@result' => 'INT',
     '@message' => 'VARCHAR(255)',
-    '@success' => 'BIT',
+    '@success' => 'BIT',        // SQL Server
+    '@success' => 'TINYINT',    // MySQL equivalent
     '@created_date' => 'DATETIME'
 ])
 ```
@@ -186,12 +250,12 @@ echo $result->result;               // Regular dataset (if any)
 **Step 3:** Only provide input values in `stored_procedure_values()`:
 
 ```php
-->stored_procedure_values([$apiServiceId, $statusCode]) // OUTPUT params handled automatically
+->stored_procedure_values([$apiServiceId, $statusCode]) // OUTPUT/OUT params handled automatically
 ```
 
 ### Smart Result Handling
 
-The package automatically detects if OUTPUT parameters are used and returns an object with both `result` (dataset) and `output` (parameters):
+The package automatically detects if OUTPUT/OUT parameters are used and returns an object with both `result` (dataset) and `output` (parameters):
 
 ```php
 $response = StoredProcedure::stored_procedure('sp_complex_operation')
@@ -285,11 +349,24 @@ $stats = StoredProcedure::stored_procedure('sp_get_user_statistics')
     ->execute()
     ->stored_procedure_result();
 
+// MySQL with OUT parameters
+$stats = StoredProcedure::stored_procedure('get_user_statistics')
+    ->stored_procedure_connection('mysql') // MySQL connection
+    ->stored_procedure_params([':user_id'])
+    ->stored_procedure_values([123])
+    ->stored_procedure_output_params([
+        '@total_posts' => 'INT',
+        '@is_active' => 'TINYINT',
+        '@last_login' => 'DATETIME'
+    ])
+    ->execute()
+    ->stored_procedure_result();
+
 // Access results
 $userData = $stats->result;           // Dataset as Collection
-$totalPosts = $stats->output->total_posts;  // OUTPUT parameter
-$isActive = $stats->output->is_active;      // OUTPUT parameter
-$lastLogin = $stats->output->last_login;    // OUTPUT parameter
+$totalPosts = $stats->output->total_posts;  // OUTPUT/OUT parameter
+$isActive = $stats->output->is_active;      // OUTPUT/OUT parameter
+$lastLogin = $stats->output->last_login;    // OUTPUT/OUT parameter
 
 // Example via dependency injection in a controller
 class UserController extends Controller
@@ -366,9 +443,11 @@ This uses Laravel’s connection from `config/database.php`.
   8. `stored_procedure_result()` (required)
 
 - All **input parameters** must be bound **by position** in the `stored_procedure_values()` array.
-- **OUTPUT parameters** must be included in `stored_procedure_params()` with the `OUTPUT` keyword (e.g., `'@result OUTPUT'`).
-- **OUTPUT parameters** are only supported on SQL Server databases.
-- When using OUTPUT parameters, the result will be an object with `result` and `output` properties.
+- **OUTPUT/OUT parameters** must be included in `stored_procedure_params()` with clean syntax:
+  - SQL Server: `'@result OUTPUT'` (OUTPUT keyword required)
+  - MySQL: `'@result'` (clean syntax, no OUT keyword needed)
+- **OUTPUT/OUT parameters** are supported on both SQL Server and MySQL databases.
+- When using OUTPUT/OUT parameters, the result will be an object with `result` and `output` properties.
 - **Pagination** works on the returned Collection, so call `paginate()` after `stored_procedure_result()`.
 - The **PaginationServiceProvider** is automatically registered, so the `paginate()` macro is available immediately.
 
@@ -390,7 +469,7 @@ This uses Laravel’s connection from `config/database.php`.
 | Basic stored procedures | ✅    | ✅         |
 | Parameters & Values     | ✅    | ✅         |
 | Transactions            | ✅    | ✅         |
-| OUTPUT Parameters       | ❌    | ✅         |
+| OUTPUT/OUT Parameters   | ✅    | ✅         |
 | Pagination              | ✅    | ✅         |
 | Logging                 | ✅    | ✅         |
 
@@ -398,7 +477,9 @@ This uses Laravel’s connection from `config/database.php`.
 
 ## 🚀 Advanced Usage
 
-### Complex SQL Server Stored Procedure with Multiple OUTPUT Parameters
+### Complex Stored Procedure with Multiple OUTPUT/OUT Parameters
+
+**SQL Server Example:**
 
 ```php
 // SQL Server stored procedure with multiple OUTPUT parameters
@@ -429,6 +510,39 @@ $rowsAffected = $result->output->rows_affected; // OUTPUT parameter
 $success = $result->output->success;            // OUTPUT parameter
 $message = $result->output->message;            // OUTPUT parameter
 $executionTime = $result->output->execution_time; // OUTPUT parameter
+```
+
+**MySQL Example:**
+
+```php
+// MySQL stored procedure with multiple OUT parameters
+$result = StoredProcedure::stored_procedure('complex_user_operation')
+    ->stored_procedure_connection('mysql')
+    ->stored_procedure_params([
+        ':user_id',
+        ':action',
+        '@rows_affected',
+        '@success',
+        '@message',
+        '@execution_time'
+    ])
+    ->stored_procedure_values([123, 'update_profile']) // Only input values
+    ->stored_procedure_output_params([
+        '@rows_affected' => 'INT',
+        '@success' => 'TINYINT',
+        '@message' => 'VARCHAR(500)',
+        '@execution_time' => 'DECIMAL(10,3)'
+    ])
+    ->with_transaction()
+    ->execute()
+    ->stored_procedure_result();
+
+// Access all results
+$userData = $result->result;                    // Dataset
+$rowsAffected = $result->output->rows_affected; // OUT parameter
+$success = $result->output->success;            // OUT parameter
+$message = $result->output->message;            // OUT parameter
+$executionTime = $result->output->execution_time; // OUT parameter
 ```
 
 ### Pagination with Custom Options
