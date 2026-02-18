@@ -3,8 +3,7 @@
 namespace MagsLabs\LaravelStoredProc;
 
 use Exception;
-use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Http\Client\Request;
+use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -35,7 +34,7 @@ use Throwable;
  *
  * @method static self stored_procedure(string $procedure) Set the stored procedure name (Required, must be called first).
  * @method static self stored_procedure_connection(string $connection) Set a specific database connection (Optional).
- * @method static self stored_procedure_params(array|Request|FormRequest $params) Set procedure parameters including OUTPUT params with OUTPUT keyword (Optional, required if the procedure has parameters).
+ * @method static self stored_procedure_params(array|Request $params) Set procedure parameters including OUTPUT params with OUTPUT keyword (Optional, required if the procedure has parameters).
  * @method static self stored_procedure_values(array $values) Set procedure values for input parameters only (Optional, required if input parameters exist).
  * @method static self stored_procedure_output_params(array $output_params) Define SQL types for OUTPUT/OUT parameters (Optional, SQL Server/MySQL).
  * @method static self with_transaction(bool $value = true) Optionally wrap the procedure in a Laravel-managed transaction.
@@ -49,42 +48,42 @@ class StoredProcedure
     /**
      * @var string The database facade class
      */
-    protected $db;
+    protected string $db;
 
     /**
      * @var string The database driver (mysql, sqlsrv, etc.)
      */
-    protected $db_driver;
+    protected string $db_driver;
 
     /**
      * @var string The SQL command to execute (CALL for MySQL, EXEC for SQL Server)
      */
-    protected $command;
+    protected string $command;
 
     /**
      * @var string|null The constructed SQL query
      */
-    protected $query;
+    protected ?string $query = null;
 
     /**
      * @var string|null The parameter string for the stored procedure
      */
-    protected $params;
+    protected ?string $params = null;
 
     /**
      * @var array The parameter values to bind
      */
-    protected $values;
+    protected array $values = [];
 
     /**
      * @var string|null The database connection name
      */
-    protected $connection;
+    protected ?string $connection = null;
 
     /**
-     * @var array The stored procedure execution result
+     * @var array|null The stored procedure execution result
      */
-    protected $result;
+    protected ?array $result = null;
 
     /**
      * @var array OUTPUT parameter definitions with SQL types
@@ -126,15 +125,13 @@ class StoredProcedure
      *
      * Attempts to use the dedicated log channel, falls back to error log if not configured.
      *
-     * @return \Psr\Log\LoggerInterface The logger instance.
-     *
      * @since 1.0.0
      */
-    protected function logger()
+    protected function logger(): \Psr\Log\LoggerInterface
     {
         try {
             return Log::channel('magslabs_laravel_stored_proc');
-        } catch (\InvalidArgumentException $e) {
+        } catch (Throwable $e) {
             return Log::build([
                 'driver' => 'errorlog',
                 'level' => 'debug',
@@ -156,19 +153,11 @@ class StoredProcedure
     {
         $this->db = DB::class;
         $this->db_driver = $this->db::getConfig('driver');
-
-        // Determine the correct stored procedure execution command based on the database driver
-        switch ($this->db_driver) {
-            case 'mysql':
-                $this->command = 'CALL'; // MySQL stored procedures use CALL
-                break;
-            case 'sqlsrv':
-                $this->command = 'EXEC'; // SQL Server stored procedures use EXEC
-                break;
-            default:
-                $this->command = 'CALL'; // Default to MySQL behavior
-                break;
-        }
+        $this->command = match ($this->db_driver) {
+            'mysql' => 'CALL',
+            'sqlsrv' => 'EXEC',
+            default => 'CALL',
+        };
     }
 
     /**
@@ -223,8 +212,8 @@ class StoredProcedure
      * ->stored_procedure_params([':input_param', '@output_param OUTPUT']) // SQL Server
      * ->stored_procedure_params([':input_param', '@output_param OUT'])     // MySQL
      *
-     * @param  array|Request|FormRequest  $params  Procedure parameters as an array, Request, or FormRequest.
-     *                                             For OUTPUT parameters, include with 'OUTPUT' (SQL Server) or 'OUT' (MySQL) keyword.
+     * @param  array|Request  $params  Procedure parameters as an array or Laravel Request (includes FormRequest).
+     *                                 For OUTPUT parameters, include with 'OUTPUT' (SQL Server) or 'OUT' (MySQL) keyword.
      * @return self Provides method chaining.
      *
      * @throws Exception If `stored_procedure()` was not called first.
@@ -246,14 +235,14 @@ class StoredProcedure
      *
      * @since 1.0.0
      */
-    public function stored_procedure_params(array|Request|FormRequest $params = []): self
+    public function stored_procedure_params(array|Request $params = []): self
     {
         if (! $this->is_sp_name_initialized) {
             $this->logger()->error('stored_procedure_params() called before stored_procedure()');
             throw new Exception('You must call stored_procedure() before stored_procedure_params().');
         }
 
-        if ($params instanceof Request || $params instanceof FormRequest) {
+        if ($params instanceof Request) {
             // Remove CSRF token if it exists in the request
             unset($params['_token']);
 
@@ -311,7 +300,7 @@ class StoredProcedure
             throw new Exception('Cannot call stored_procedure_values() if there are no parameters.');
         }
 
-        $this->values = $values ?? [];
+        $this->values = $values;
         $this->is_sp_values_initialized = true;
 
         $this->logger()->debug('Stored procedure values set', ['values' => $values]);
@@ -383,7 +372,7 @@ class StoredProcedure
      * - The stored procedure already includes `BEGIN TRANSACTION`, `COMMIT`, or `ROLLBACK`.
      * - You're calling nested stored procedures that manage their own transactions.
      *
-     * @param  bool  $value  Whether to wrap the execution in a Laravel-managed transaction. Default is true.
+     * @param  bool  $use_transaction  Whether to wrap the execution in a Laravel-managed transaction. Default is true.
      * @return self Provides method chaining.
      *
      * @api
@@ -413,98 +402,6 @@ class StoredProcedure
      * @since 1.0.0
      */
 
-    // Commented out because there is an optimized version of this method below
-    // public function execute(): self
-    // {
-    //     if (!$this->is_sp_name_initialized) {
-    //         $this->logger()->error("execute() called before stored_procedure()");
-    //         throw new Exception('You must call stored_procedure() before execute().');
-    //     }
-
-    //     // If params are set, values must also be set.
-    //     if ($this->is_sp_params_initialized && !$this->is_sp_values_initialized) {
-    //         $this->logger()->error("stored_procedure_values() missing after stored_procedure_params()");
-    //         throw new Exception('You must call stored_procedure_values() after stored_procedure_params().');
-    //     }
-
-    //     // $bindings = $this->command == 'CALL' ? ' (' . $this->params . ');' : ' ' . $this->params;
-
-    //     // Construct the SQL query dynamically based on the database type
-    //     $bindings = ($this->command === 'CALL')
-    //         ? ($this->params ? " (" . $this->params . ");" : "();")
-    //         // ? ($this->params ? " (" . $this->params . ");" : "")
-    //         : ($this->params ? " " . $this->params : "");
-
-    //     // Construct the final query
-    //     $this->query = $this->query . $bindings;
-
-    //     // Checks if a specific database connection is set, otherwise use the default connection
-    //     $dbConnection = $this->connection === ''
-    //         ? $this->db::connection()
-    //         : $this->db::connection($this->connection);
-
-    //     $this->logger()->info("Executing stored procedure", [
-    //         'query' => $this->query,
-    //         'values' => $this->values,
-    //         'output_params' => $this->output_params,
-    //         'use_transaction' => $this->use_transaction,
-    //         'connection' => $this->connection ?: 'default',
-    //     ]);
-
-    //     try {
-    //         if ($this->use_transaction) {
-    //             $dbConnection->beginTransaction();
-    //         }
-
-    //         // This block is for output parameters only if they are set
-    //         if (!empty($this->output_params)) {
-    //             // Get the PDO instance from the database connection
-    //             $pdo = $dbConnection->getPdo();
-
-    //             // Perpare and execute the stored procedure call
-    //             $stmt = $pdo->prepare($this->query);
-    //             $stmt->execute($this->values);
-
-    //             // Fetch the main result set, if any
-    //             $this->result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    //             $stmt->closeCursor();
-
-    //             // Now, execute the second query to get the output parameter values
-    //             $select_output_params_query = 'SELECT ' . implode(', ', $this->output_params);
-    //             $output_stmt = $pdo->query($select_output_params_query);
-    //             $this->output_results = $output_stmt->fetchAll(PDO::FETCH_ASSOC);
-    //         } else {
-    //             $this->result = empty($this->values)
-    //                 ? $dbConnection->select($this->query)
-    //                 : $dbConnection->select($this->query, $this->values);
-    //         }
-
-    //         if ($this->use_transaction) {
-    //             $dbConnection->commit();
-    //         }
-
-    //         $this->logger()->info("Stored procedure executed successfully");
-    //     } catch (Throwable $throwable) {
-    //         if ($this->use_transaction) {
-    //             $dbConnection->rollBack();
-    //         }
-
-    //         $this->logger()->error("Stored procedure execution failed", [
-    //             'error' => $throwable->getMessage(),
-    //             'exception' => get_class($throwable),
-    //             'trace' => $throwable->getTraceAsString(),
-    //             'query' => $this->query,
-    //             'values' => $this->values,
-    //         ]);
-
-    //         throw $throwable;
-    //     }
-
-    //     $this->is_execute_called = true;
-
-    //     return $this;
-    // }
-
     // Optimized version of the execute method
     public function execute(): self
     {
@@ -524,16 +421,18 @@ class StoredProcedure
         $sp_call = $this->query.$bindings;
 
         // DB connection
-        $db_connection = $this->connection === ''
+        $db_connection = ($this->connection === null || $this->connection === '')
             ? $this->db::connection()
             : $this->db::connection($this->connection);
 
         $this->logger()->info('Executing stored procedure', [
             'query' => $sp_call,
+            'connection' => $this->connection ?? 'default',
+            'use_transaction' => $this->use_transaction,
+        ]);
+        $this->logger()->debug('Stored procedure bindings (debug only)', [
             'values' => $this->values,
             'output_params' => $this->output_params,
-            'use_transaction' => $this->use_transaction,
-            'connection' => $this->connection ?: 'default',
         ]);
 
         try {
@@ -593,7 +492,7 @@ class StoredProcedure
                     $cleanParam = trim(str_replace('OUT', '', $param));
                     $db_connection->statement("SET @$cleanParam = NULL");
                 }
-                
+
                 // Execute the CALL statement (without OUT keywords)
                 // Remove any OUT keywords that might be in the original call
                 $cleanCall = $sp_call;
@@ -606,31 +505,31 @@ class StoredProcedure
                         $cleanCall
                     );
                 }
-                
+
                 $this->logger()->debug('Executing MySQL OUT param query', [
                     'call_query' => $cleanCall,
                     'values' => $this->values,
                     'driver' => $this->db_driver,
                 ]);
-                
+
                 // Execute the stored procedure call
                 $db_connection->select($cleanCall, $this->values);
-                
+
                 // Fetch OUTPUT variables separately
                 $selectStmts = [];
                 foreach ($this->output_params as $param => $type) {
                     $cleanParam = trim(str_replace('OUT', '', $param));
                     $selectStmts[] = "@$cleanParam AS ".ltrim($cleanParam, '@');
                 }
-                
+
                 $selectQuery = 'SELECT '.implode(', ', $selectStmts);
-                
+
                 $this->logger()->debug('Fetching MySQL OUT parameters', [
                     'select_query' => $selectQuery,
                 ]);
-                
+
                 $this->output_results = $db_connection->select($selectQuery);
-                
+
                 // No tabular dataset expected in this mode
                 $this->result = [];
 
@@ -654,10 +553,9 @@ class StoredProcedure
             $this->logger()->error('Stored procedure execution failed', [
                 'error' => $throwable->getMessage(),
                 'exception' => get_class($throwable),
-                'trace' => $throwable->getTraceAsString(),
                 'query' => $sp_call,
-                'values' => $this->values,
             ]);
+            $this->logger()->debug('Failed call bindings (debug only)', ['values' => $this->values]);
 
             throw $throwable;
         }
@@ -695,30 +593,6 @@ class StoredProcedure
      *
      * @since 1.0.0
      */
-
-    // Commented out because it was returning a collection or an array
-    // public function stored_procedure_result(): Collection|array
-    // {
-    //     if (!$this->is_execute_called) {
-    //         $this->logger()->error("Attempted to retrieve stored procedure result before execution");
-    //         throw new Exception('You must call execute() before stored_procedure_result().');
-    //     }
-
-    //     $this->logger()->debug("Returning stored procedure result", [
-    //         'records_found' => count($this->result ?? [])
-    //     ]);
-
-    //     $result = $this->result;
-
-    //     $this->autoReset();
-
-    //     // Return results as a Laravel Collection or an empty Collection if no records were found
-    //     // return collect($this->result)->count() > 0
-    //     //     ? Collection::make($this->result)
-    //     //     : Collection::make([]);
-    //     return collect($result)->count() > 0 ? Collection::make($result) : Collection::make([]);
-    // }
-
     public function stored_procedure_result(): mixed
     {
         if (! $this->is_execute_called) {
@@ -843,7 +717,7 @@ class StoredProcedure
 
         $this->query = null;
         $this->params = null;
-        $this->values = null;
+        $this->values = [];
         $this->connection = null;
         $this->use_transaction = false;
         $this->output_params = [];

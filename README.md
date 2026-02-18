@@ -28,16 +28,18 @@ You can install the package via Composer:
 composer require magslabs/laravel-storedproc
 ```
 
-The package will automatically register the `PaginationServiceProvider` to enable the `paginate()` macro on Laravel Collections.
+The package will automatically register the `PaginationServiceProvider` and the `StoredProcedure` facade alias.
 
 ---
 
 ## Basic Usage
 
-```php
-use MagsLabs\LaravelStoredProc\StoredProcedure;
+You can use the **Facade** (when installed in a Laravel app) or the **class** directly:
 
-// Basic stored procedure call with parameters
+```php
+// Using the Facade (alias registered automatically)
+use StoredProcedure;
+
 $result = StoredProcedure::stored_procedure('get_user_by_id')
     ->stored_procedure_params([':id'])
     ->stored_procedure_values([1])
@@ -45,7 +47,19 @@ $result = StoredProcedure::stored_procedure('get_user_by_id')
     ->stored_procedure_result();
 ```
 
-Or if your stored procedure does not require parameters:
+Or use the class directly:
+
+```php
+use MagsLabs\LaravelStoredProc\StoredProcedure;
+
+$result = StoredProcedure::stored_procedure('get_user_by_id')
+    ->stored_procedure_params([':id'])
+    ->stored_procedure_values([1])
+    ->execute()
+    ->stored_procedure_result();
+```
+
+Stored procedure **without parameters**:
 
 ```php
 $result = StoredProcedure::stored_procedure('get_all_users')
@@ -116,8 +130,8 @@ You can pass parameters in multiple formats:
 ->stored_procedure_params([':id'])
 ->stored_procedure_values([1]);
 
-// From a Laravel FormRequest or Request
-->stored_procedure_params($request); // will automatically extract keys and format them
+// From a Laravel Request or FormRequest
+->stored_procedure_params($request); // extracts keys and formats as placeholders
 ->stored_procedure_values([$request->id]);
 ```
 
@@ -432,7 +446,6 @@ This uses Laravel’s connection from `config/database.php`.
 ## Common Gotchas
 
 - You **must** call methods in this order:
-
   1. `stored_procedure()` (required)
   2. `stored_procedure_connection()` (optional)
   3. `stored_procedure_params()` (optional, if your proc has parameters)
@@ -450,6 +463,8 @@ This uses Laravel’s connection from `config/database.php`.
 - When using OUTPUT/OUT parameters, the result will be an object with `result` and `output` properties.
 - **Pagination** works on the returned Collection, so call `paginate()` after `stored_procedure_result()`.
 - The **PaginationServiceProvider** is automatically registered, so the `paginate()` macro is available immediately.
+- The **`StoredProcedure`** facade alias is registered automatically so you can use `StoredProcedure::stored_procedure('name')` statically in your app.
+- **Logging:** Bound values and output params are logged only at `debug` level to avoid exposing sensitive data in production logs.
 
 ---
 

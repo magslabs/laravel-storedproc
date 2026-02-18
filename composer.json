@@ -1,8 +1,18 @@
 {
     "name": "magslabs/laravel-storedproc",
     "type": "library",
-    "keywords": ["magslabs", "laravel", "stored-procedure", "stored-procedures", "database", "mysql", "sql-server", "pagination", "output-parameters", "transactions"],
     "description": "A fluent Laravel package for calling stored procedures with support for OUTPUT parameters, pagination, and transactions.",
+    "keywords": [
+        "magslabs",
+        "laravel",
+        "stored-procedure",
+        "database",
+        "mysql",
+        "sql-server",
+        "pagination",
+        "output-parameters",
+        "transactions"
+    ],
     "license": "MIT",
     "authors": [
         {
@@ -10,26 +20,49 @@
             "email": "sollano.markangelo@gmail.com"
         }
     ],
+    "homepage": "https://github.com/magslabs/laravel-storedproc",
+    "support": {
+        "issues": "https://github.com/magslabs/laravel-storedproc/issues",
+        "source": "https://github.com/magslabs/laravel-storedproc"
+    },
     "require": {
-        "php": "^8.4|^8.3|^8.2|^8.1|^8.0",
-        "laravel/framework": "^12.0|^11.9|^10.0|^9.0"
+        "php": ">=8.0 <9.0",
+        "laravel/framework": "^9.0|^10.0|^11.0|^12.0"
     },
     "require-dev": {
-
-    },
-    "config": {
-        "sort-packages": true
+        "orchestra/testbench": "^7.0|^8.0|^9.0",
+        "pestphp/pest": "^2.0|^3.0",
+        "phpstan/phpstan": "^1.10",
+        "laravel/pint": "^1.0"
     },
     "autoload": {
         "psr-4": {
             "MagsLabs\\LaravelStoredProc\\": "src/"
         }
     },
+    "autoload-dev": {
+        "psr-4": {
+            "MagsLabs\\LaravelStoredProc\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "analyse": "phpstan analyse"
+    },
     "extra": {
         "laravel": {
             "providers": [
                 "MagsLabs\\LaravelStoredProc\\Providers\\PaginationServiceProvider"
-            ]
+            ],
+            "aliases": {
+                "StoredProcedure": "MagsLabs\\LaravelStoredProc\\Facades\\StoredProcedureFacade"
+            }
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
         }
     },
     "minimum-stability": "stable",
