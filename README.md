@@ -28,7 +28,7 @@ You can install the package via Composer:
 composer require magslabs/laravel-storedproc
 ```
 
-The package will automatically register the `PaginationServiceProvider` and the `StoredProcedure` facade alias.
+The package will automatically register the `StoredProcedureServiceProvider` (binding), `PaginationServiceProvider` (Collection `paginate` macro), and the `StoredProcedure` facade alias.
 
 ---
 
@@ -462,7 +462,7 @@ This uses Laravel’s connection from `config/database.php`.
 - **OUTPUT/OUT parameters** are supported on both SQL Server and MySQL databases.
 - When using OUTPUT/OUT parameters, the result will be an object with `result` and `output` properties.
 - **Pagination** works on the returned Collection, so call `paginate()` after `stored_procedure_result()`.
-- The **PaginationServiceProvider** is automatically registered, so the `paginate()` macro is available immediately.
+- The **StoredProcedureServiceProvider** registers the `StoredProcedure` binding; the **PaginationServiceProvider** registers the `paginate()` macro on `Collection`, so both are available after installation.
 - The **`StoredProcedure`** facade alias is registered automatically so you can use `StoredProcedure::stored_procedure('name')` statically in your app.
 - **Logging:** Bound values and output params are logged only at `debug` level to avoid exposing sensitive data in production logs.
 

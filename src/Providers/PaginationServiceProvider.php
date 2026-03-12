@@ -5,17 +5,9 @@ namespace MagsLabs\LaravelStoredProc\Providers;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\ServiceProvider;
-use MagsLabs\LaravelStoredProc\StoredProcedure;
 
 class PaginationServiceProvider extends ServiceProvider
 {
-    public function register(): void
-    {
-        $this->app->bind(StoredProcedure::class, function () {
-            return new StoredProcedure;
-        });
-    }
-
     public function boot(): void
     {
         if (! Collection::hasMacro('paginate')) {

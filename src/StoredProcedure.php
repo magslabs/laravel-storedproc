@@ -86,14 +86,14 @@ class StoredProcedure
     protected ?array $result = null;
 
     /**
-     * @var array OUTPUT parameter definitions with SQL types
+     * @var array<string, string> OUTPUT parameter definitions (param name => SQL type)
      */
-    protected $output_params = [];
+    protected array $output_params = [];
 
     /**
-     * @var array OUTPUT parameter results after execution
+     * @var array<int, array<string, mixed>> OUTPUT parameter results after execution
      */
-    protected $output_results = [];
+    protected array $output_results = [];
 
     /**
      * @var bool Whether to wrap execution in a transaction

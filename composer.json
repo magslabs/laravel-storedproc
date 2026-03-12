@@ -52,6 +52,7 @@
     "extra": {
         "laravel": {
             "providers": [
+                "MagsLabs\\LaravelStoredProc\\Providers\\StoredProcedureServiceProvider",
                 "MagsLabs\\LaravelStoredProc\\Providers\\PaginationServiceProvider"
             ],
             "aliases": {
