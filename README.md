@@ -470,8 +470,8 @@ This uses Laravel’s connection from `config/database.php`.
 
 ## Compatibility
 
-- **PHP**: 8.0, 8.1, 8.2, 8.3, 8.4
-- **Laravel**: 9.x, 10.x, 11.x, 12.x
+- **PHP**: 8.0, 8.1, 8.2, 8.3, 8.4 (Laravel 13 requires PHP 8.3+)
+- **Laravel**: 9.x, 10.x, 11.x, 12.x, 13.x (backward compatible; 13.x is the default target)
 - **Databases**:
   - MySQL (5.7+, 8.0+)
   - SQL Server (2016+, 2019+, 2022+)
