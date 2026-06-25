@@ -15,16 +15,23 @@ class SqlServerIntrospector implements StoredProcedureIntrospector
     public function exists(string $name, ?string $schema = null): bool
     {
         [$schema, $procedure] = $this->parseName($name, $schema);
+        $qualified = $schema.'.'.$procedure;
 
         $result = $this->connection->selectOne(
-            'SELECT COUNT(*) AS total
-             FROM sys.procedures p
-             INNER JOIN sys.schemas s ON p.schema_id = s.schema_id
-             WHERE p.name = ? AND s.name = ?',
-            [$procedure, $schema]
+            'SELECT CASE
+                WHEN OBJECT_ID(?, ?) IS NOT NULL THEN 1
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM sys.synonyms syn
+                    INNER JOIN sys.schemas s ON syn.schema_id = s.schema_id
+                    WHERE syn.name = ? AND s.name = ?
+                ) THEN 1
+                ELSE 0
+            END AS found',
+            [$qualified, 'P', $procedure, $schema]
         );
 
-        return (int) ($result->total ?? 0) > 0;
+        return (int) ($result->found ?? 0) === 1;
     }
 
     public function parameters(string $name, ?string $schema = null): array
