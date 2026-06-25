@@ -14,21 +14,18 @@ class StoredProcedureValidator
      */
     public function validate(
         StoredProcedureIntrospector $introspector,
-        string $procedure_name,
-        ?string $schema,
+        string $qualified_procedure_name,
         ?string $params_string,
         array $input_values,
         array $output_param_definitions,
     ): void {
-        if (! $introspector->exists($procedure_name, $schema)) {
-            $qualified = $schema ? "{$schema}.{$procedure_name}" : $procedure_name;
-
+        if (! $introspector->exists($qualified_procedure_name)) {
             throw new StoredProcedureNotFoundException(
-                "Stored procedure [{$qualified}] was not found on the database."
+                "Stored procedure [{$qualified_procedure_name}] was not found on the database."
             );
         }
 
-        $db_parameters = $introspector->parameters($procedure_name, $schema);
+        $db_parameters = $introspector->parameters($qualified_procedure_name);
 
         if ($db_parameters === []) {
             return;
@@ -40,7 +37,7 @@ class StoredProcedureValidator
 
         if (count($caller['inputs']) !== count($expected_inputs)) {
             throw new ParameterMismatchException($this->buildCountMessage(
-                $procedure_name,
+                $qualified_procedure_name,
                 'input',
                 count($expected_inputs),
                 count($caller['inputs']),
@@ -51,7 +48,7 @@ class StoredProcedureValidator
 
         if (count($caller['outputs']) !== count($expected_outputs)) {
             throw new ParameterMismatchException($this->buildCountMessage(
-                $procedure_name,
+                $qualified_procedure_name,
                 'output',
                 count($expected_outputs),
                 count($caller['outputs']),
@@ -62,7 +59,7 @@ class StoredProcedureValidator
 
         if (count($expected_inputs) > 0 && count($input_values) !== count($expected_inputs)) {
             throw new ParameterMismatchException(
-                "Stored procedure [{$procedure_name}] expects ".count($expected_inputs)
+                "Stored procedure [{$qualified_procedure_name}] expects ".count($expected_inputs)
                 .' input value(s) via stored_procedure_values(), but '.count($input_values).' were provided.'
             );
         }

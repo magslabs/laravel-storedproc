@@ -10,6 +10,7 @@ class SqlServerIntrospector implements StoredProcedureIntrospector
 {
     public function __construct(
         protected Connection $connection,
+        protected bool $check_synonyms = false,
     ) {}
 
     public function exists(string $name, ?string $schema = null): bool
@@ -17,19 +18,26 @@ class SqlServerIntrospector implements StoredProcedureIntrospector
         [$schema, $procedure] = $this->parseName($name, $schema);
         $qualified = $schema.'.'.$procedure;
 
-        $result = $this->connection->selectOne(
-            'SELECT CASE
-                WHEN OBJECT_ID(?, ?) IS NOT NULL THEN 1
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM sys.synonyms syn
-                    INNER JOIN sys.schemas s ON syn.schema_id = s.schema_id
-                    WHERE syn.name = ? AND s.name = ?
-                ) THEN 1
-                ELSE 0
-            END AS found',
-            [$qualified, 'P', $procedure, $schema]
-        );
+        if ($this->check_synonyms) {
+            $result = $this->connection->selectOne(
+                'SELECT CASE
+                    WHEN OBJECT_ID(?, ?) IS NOT NULL THEN 1
+                    WHEN EXISTS (
+                        SELECT 1
+                        FROM sys.synonyms syn
+                        INNER JOIN sys.schemas s ON syn.schema_id = s.schema_id
+                        WHERE syn.name = ? AND s.name = ?
+                    ) THEN 1
+                    ELSE 0
+                END AS found',
+                [$qualified, 'P', $procedure, $schema]
+            );
+        } else {
+            $result = $this->connection->selectOne(
+                'SELECT CASE WHEN OBJECT_ID(?, ?) IS NOT NULL THEN 1 ELSE 0 END AS found',
+                [$qualified, 'P']
+            );
+        }
 
         return (int) ($result->found ?? 0) === 1;
     }

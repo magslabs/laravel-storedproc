@@ -28,10 +28,22 @@ class StoredProcedureDriverManager
     {
         return match ($connection->getDriverName()) {
             'mysql', 'mariadb' => new MySqlIntrospector($connection),
-            'sqlsrv' => new SqlServerIntrospector($connection),
+            'sqlsrv' => new SqlServerIntrospector($connection, $this->checkSynonyms()),
             default => throw new UnsupportedDriverException(
                 "Stored procedure introspection for [{$connection->getDriverName()}] is not supported."
             ),
         };
+    }
+
+    private function checkSynonyms(): bool
+    {
+        if (! function_exists('config')) {
+            return false;
+        }
+
+        return filter_var(
+            config('storedproc.check_synonyms', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
     }
 }

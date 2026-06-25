@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use MagsLabs\LaravelStoredProc\Contracts\StoredProcedureIntrospector;
@@ -72,7 +73,7 @@ it('builds mysql and sql server calls via drivers', function () {
 
 it('executes sql server procedures with qualified dbo name when unqualified', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->with('get_users', 'dbo')->andReturn(true);
+    $introspector->shouldReceive('exists')->once()->with('dbo.get_users')->andReturn(true);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
     $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
@@ -97,7 +98,7 @@ it('executes sql server procedures with qualified dbo name when unqualified', fu
 
 it('throws stored procedure not found for missing sql server procedure with defaults', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->with('missing_proc', 'dbo')->andReturn(false);
+    $introspector->shouldReceive('exists')->once()->with('dbo.missing_proc')->andReturn(false);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
     $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
@@ -115,7 +116,7 @@ it('throws stored procedure not found for missing sql server procedure with defa
 
 it('assertExists throws when procedure is missing', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->with('missing_proc', 'test_db')->andReturn(false);
+    $introspector->shouldReceive('exists')->once()->with('test_db.missing_proc')->andReturn(false);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
     $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
@@ -132,15 +133,15 @@ it('assertExists throws when procedure is missing', function () {
         ->toThrow(StoredProcedureNotFoundException::class);
 });
 
-it('validate runs before execute when chained', function () {
+it('validate runs existence check and validation before execute when chained', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->andReturn(true);
-    $introspector->shouldReceive('parameters')->once()->andReturn([
+    $introspector->shouldReceive('exists')->twice()->with('test_db.get_user')->andReturn(true);
+    $introspector->shouldReceive('parameters')->once()->with('test_db.get_user')->andReturn([
         new ProcedureParameter('id', 1, 'IN', 'int'),
     ]);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
-    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+    $manager->shouldReceive('introspectorFor')->twice()->andReturn($introspector);
     $manager->shouldReceive('driverFor')->once()->andReturn(new MySqlDriver);
 
     $connection = Mockery::mock(Connection::class);
@@ -166,14 +167,14 @@ it('validate runs before execute when chained', function () {
 
 it('fails validation when input value count mismatches', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->andReturn(true);
-    $introspector->shouldReceive('parameters')->once()->andReturn([
+    $introspector->shouldReceive('exists')->twice()->with('test_db.get_user')->andReturn(true);
+    $introspector->shouldReceive('parameters')->once()->with('test_db.get_user')->andReturn([
         new ProcedureParameter('id', 1, 'IN', 'int'),
         new ProcedureParameter('role', 2, 'IN', 'varchar'),
     ]);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
-    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+    $manager->shouldReceive('introspectorFor')->twice()->andReturn($introspector);
 
     $connection = Mockery::mock(Connection::class);
     $connection->shouldReceive('getDriverName')->andReturn('mysql');
@@ -193,7 +194,7 @@ it('fails validation when input value count mismatches', function () {
 
 it('automatically checks procedure exists on every execute', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->with('get_user', 'test_db')->andReturn(true);
+    $introspector->shouldReceive('exists')->once()->with('test_db.get_user')->andReturn(true);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
     $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
@@ -215,7 +216,7 @@ it('automatically checks procedure exists on every execute', function () {
 
 it('throws when procedure is missing on execute without validate', function () {
     $introspector = Mockery::mock(StoredProcedureIntrospector::class);
-    $introspector->shouldReceive('exists')->once()->andReturn(false);
+    $introspector->shouldReceive('exists')->once()->with('test_db.missing_proc')->andReturn(false);
 
     $manager = Mockery::mock(StoredProcedureDriverManager::class);
     $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
@@ -232,10 +233,39 @@ it('throws when procedure is missing on execute without validate', function () {
         ->toThrow(StoredProcedureNotFoundException::class);
 });
 
+it('maps sql server execution errors to stored procedure not found when check is disabled', function () {
+    config(['storedproc.check_exists_before_execute' => false]);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->never();
+    $manager->shouldReceive('driverFor')->once()->andReturn(new SqlServerDriver);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('sqlsrv');
+    $connection->shouldReceive('select')
+        ->once()
+        ->andThrow(new QueryException(
+            'sqlsrv',
+            'EXEC dbo.missing_proc',
+            [],
+            new Exception("SQLSTATE[42000]: Could not find stored procedure 'dbo.missing_proc'.")
+        ));
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    expect(fn () => $sp->procedure('missing_proc')->run())
+        ->toThrow(StoredProcedureNotFoundException::class, 'Stored procedure [dbo.missing_proc] was not found');
+
+    config(['storedproc.check_exists_before_execute' => true]);
+});
+
 it('uses merged package config defaults without publishing', function () {
     expect(config('storedproc.check_exists_before_execute'))->toBeTrue();
     expect(config('storedproc.validate_before_execute'))->toBeFalse();
     expect(config('storedproc.default_schema'))->toBe('dbo');
+    expect(config('storedproc.check_synonyms'))->toBeFalse();
 });
 
 it('skips existence check only when config explicitly disables it', function () {
@@ -248,7 +278,7 @@ it('skips existence check only when config explicitly disables it', function () 
     $connection = Mockery::mock(Connection::class);
     $connection->shouldReceive('getDriverName')->andReturn('mysql');
     $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
-    $connection->shouldReceive('select')->once()->andReturn([]);
+    $connection->shouldReceive('select')->once()->with('CALL test_db.any_proc();')->andReturn([]);
 
     DB::shouldReceive('connection')->andReturn($connection);
 

@@ -46,4 +46,19 @@ return [
 
     'default_schema' => env('STORED_PROC_SCHEMA', 'dbo'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Include Synonyms in Existence Check (SQL Server)
+    |--------------------------------------------------------------------------
+    |
+    | When false (default), only real stored procedures match the existence
+    | check. When true, synonyms are treated as callable procedures too.
+    |
+    */
+
+    'check_synonyms' => filter_var(
+        env('STORED_PROC_CHECK_SYNONYMS', false),
+        FILTER_VALIDATE_BOOLEAN
+    ),
+
 ];

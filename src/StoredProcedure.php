@@ -260,7 +260,7 @@ class StoredProcedure
 
         $introspector = $this->driver_manager->introspectorFor($this->resolveConnection());
 
-        if (! $introspector->exists($this->procedure_name, $this->resolveSchema())) {
+        if (! $introspector->exists($this->qualifiedProcedureName())) {
             $qualified = $this->qualifiedProcedureName();
 
             throw new StoredProcedureNotFoundException(
@@ -283,7 +283,7 @@ class StoredProcedure
         try {
             $introspector = $this->driver_manager->introspectorFor($this->resolveConnection());
 
-            return $introspector->exists($this->procedure_name, $this->resolveSchema());
+            return $introspector->exists($this->qualifiedProcedureName());
         } catch (Throwable $throwable) {
             $this->logger()->warning('Stored procedure existence check failed', [
                 'procedure' => $this->qualifiedProcedureName(),
@@ -312,10 +312,12 @@ class StoredProcedure
 
         $connection = $this->resolveConnection();
 
-        if ($this->should_validate || $this->config('validate_before_execute', false)) {
-            $this->runValidation($connection);
-        } elseif ($this->config('check_exists_before_execute', true)) {
+        if ($this->shouldCheckExists()) {
             $this->runExistenceCheck($connection);
+        }
+
+        if ($this->should_validate || $this->configBool('validate_before_execute', false)) {
+            $this->runValidation($connection);
         }
 
         $driver = $this->driver_manager->driverFor($connection);
@@ -367,7 +369,7 @@ class StoredProcedure
             ]);
             $this->logger()->debug('Failed call bindings (debug only)', ['values' => $this->values]);
 
-            throw $throwable;
+            throw $this->wrapExecutionException($throwable, $procedure);
         }
 
         $this->is_execute_called = true;
@@ -548,10 +550,9 @@ class StoredProcedure
     private function runExistenceCheck(Connection $connection): void
     {
         $introspector = $this->driver_manager->introspectorFor($connection);
+        $qualified = $this->qualifiedProcedureName();
 
-        if (! $introspector->exists($this->procedure_name, $this->resolveSchema())) {
-            $qualified = $this->qualifiedProcedureName();
-
+        if (! $introspector->exists($qualified)) {
             $this->logger()->error('Stored procedure not found before execute', [
                 'procedure' => $qualified,
                 'connection' => $this->connection ?? 'default',
@@ -569,12 +570,46 @@ class StoredProcedure
 
         $this->validator->validate(
             $introspector,
-            $this->procedure_name,
-            $this->resolveSchema(),
+            $this->qualifiedProcedureName(),
             $this->params,
             $this->values,
             $this->output_params,
         );
+    }
+
+    private function shouldCheckExists(): bool
+    {
+        return $this->configBool('check_exists_before_execute', true);
+    }
+
+    private function configBool(string $key, bool $default): bool
+    {
+        return filter_var($this->config($key, $default), FILTER_VALIDATE_BOOLEAN);
+    }
+
+    private function wrapExecutionException(Throwable $throwable, string $procedure): Throwable
+    {
+        if ($throwable instanceof StoredProcedureNotFoundException) {
+            return $throwable;
+        }
+
+        $message = $throwable->getMessage();
+
+        $is_missing_procedure = preg_match('/could not find stored procedure/i', $message) === 1
+            || preg_match('/procedure .* does not exist/i', $message) === 1
+            || preg_match('/unknown procedure/i', $message) === 1
+            || preg_match('/\b2812\b/', $message) === 1
+            || preg_match('/\b1305\b/', $message) === 1;
+
+        if ($is_missing_procedure) {
+            return new StoredProcedureNotFoundException(
+                "Stored procedure [{$procedure}] was not found on the database.",
+                0,
+                $throwable
+            );
+        }
+
+        return $throwable;
     }
 
     private function config(string $key, mixed $default = null): mixed

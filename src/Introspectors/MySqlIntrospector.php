@@ -14,12 +14,12 @@ class MySqlIntrospector implements StoredProcedureIntrospector
 
     public function exists(string $name, ?string $schema = null): bool
     {
-        $schema = $schema ?? $this->connection->getDatabaseName();
+        [$schema, $procedure] = $this->parseName($name, $schema);
 
         $result = $this->connection->selectOne(
             'SELECT COUNT(*) AS total FROM information_schema.ROUTINES
              WHERE ROUTINE_SCHEMA = ? AND ROUTINE_NAME = ? AND ROUTINE_TYPE = ?',
-            [$schema, $this->bareName($name), 'PROCEDURE']
+            [$schema, $procedure, 'PROCEDURE']
         );
 
         return (int) ($result->total ?? 0) > 0;
@@ -27,14 +27,14 @@ class MySqlIntrospector implements StoredProcedureIntrospector
 
     public function parameters(string $name, ?string $schema = null): array
     {
-        $schema = $schema ?? $this->connection->getDatabaseName();
+        [$schema, $procedure] = $this->parseName($name, $schema);
 
         $rows = $this->connection->select(
             'SELECT PARAMETER_NAME, ORDINAL_POSITION, PARAMETER_MODE, DTD_IDENTIFIER
              FROM information_schema.PARAMETERS
              WHERE SPECIFIC_SCHEMA = ? AND SPECIFIC_NAME = ?
              ORDER BY ORDINAL_POSITION',
-            [$schema, $this->bareName($name)]
+            [$schema, $procedure]
         );
 
         $parameters = [];
@@ -54,12 +54,14 @@ class MySqlIntrospector implements StoredProcedureIntrospector
         return $parameters;
     }
 
-    private function bareName(string $name): string
+    private function parseName(string $name, ?string $schema): array
     {
         if (str_contains($name, '.')) {
-            return substr($name, strrpos($name, '.') + 1);
+            [$schema_part, $procedure] = explode('.', $name, 2);
+
+            return [$schema_part, $procedure];
         }
 
-        return $name;
+        return [$schema ?? $this->connection->getDatabaseName(), $name];
     }
 }
