@@ -8,15 +8,18 @@ This package simplifies that.
 
 ## Features
 
-- Fluent, chainable syntax for stored procedure calls
+- Fluent, chainable syntax for stored procedure calls (with shorter method aliases)
 - Parameter binding from arrays or Laravel requests
-- Optional Laravel-managed transaction support
-- Works with MySQL and SQL Server
-- Exception-safe with automatic rollback on failure
-- **NEW:** OUTPUT parameter support for SQL Server and MySQL stored procedures
-- **NEW:** Built-in pagination macro for Laravel Collections
+- Optional Laravel-managed transaction support with automatic rollback on failure
+- Connection-aware drivers for **MySQL** and **SQL Server** (`CALL` / `EXEC` resolved per connection)
+- **Automatic existence check** before every `execute()` / `run()` (v2 default; configurable)
+- Opt-in **parameter validation** against the database schema
+- OUTPUT/OUT parameter support for SQL Server and MySQL stored procedures
+- Built-in pagination macro for Laravel Collections
+- Schema qualification (`dbo.sp_users`, `database.procedure`, or `stored_procedure_schema()`)
 - Enhanced logging with dedicated log channel
 - Smart result handling (datasets + OUTPUT parameters)
+- Typed exceptions for missing procedures, parameter mismatches, and invalid call order
 
 ---
 
@@ -29,6 +32,23 @@ composer require magslabs/laravel-storedproc
 ```
 
 The package will automatically register the `StoredProcedureServiceProvider` (binding), `PaginationServiceProvider` (Collection `paginate` macro), and the `StoredProcedure` facade alias.
+
+### Configuration (optional)
+
+Publish the config file to customize validation and schema defaults:
+
+```bash
+php artisan vendor:publish --tag=storedproc-config
+```
+
+This creates `config/storedproc.php`. You can also set these via `.env`:
+
+| Variable | Default | Description |
+| -------- | ------- | ----------- |
+| `STORED_PROC_CHECK_EXISTS` | `true` | Verify the procedure exists before every `execute()` / `run()` |
+| `STORED_PROC_VALIDATE` | `false` | Fully validate parameters (count, direction) before execution |
+| `STORED_PROC_SCHEMA` | `dbo` | Default schema when the procedure name has no prefix (SQL Server) |
+| `STORED_PROC_CHECK_SYNONYMS` | `false` | Treat SQL Server synonyms as callable procedures in existence checks |
 
 ---
 
@@ -45,6 +65,13 @@ $result = StoredProcedure::stored_procedure('get_user_by_id')
     ->stored_procedure_values([1])
     ->execute()
     ->stored_procedure_result();
+
+// Shorter aliases (same behavior)
+$result = StoredProcedure::procedure('get_user_by_id')
+    ->params([':id'])
+    ->values([1])
+    ->run()
+    ->result();
 ```
 
 Or use the class directly:
@@ -118,6 +145,86 @@ $totalCount = $result->output;   // Scalar value
 ```
 
 The result is returned as a Laravel Collection for easy chaining and manipulation, or as an object with `result` and `output` properties when OUTPUT parameters are used.
+
+---
+
+## Method Aliases
+
+All original method names remain supported. Shorter aliases are available for the same behavior:
+
+| Original | Alias |
+| -------- | ----- |
+| `stored_procedure()` | `procedure()` |
+| `stored_procedure_connection()` | `connection()` |
+| `stored_procedure_params()` | `params()` |
+| `stored_procedure_values()` | `values()` |
+| `stored_procedure_output_params()` | `outputs()` |
+| `execute()` | `run()` |
+| `stored_procedure_result()` | `result()` |
+| `stored_procedure_output_results()` | `outputResults()` |
+
+---
+
+## Validation & Existence Checks (v2)
+
+Starting in **v2.0.0**, every `execute()` / `run()` automatically verifies the procedure exists on the database before running it. Disable this to restore v1 behavior:
+
+```env
+STORED_PROC_CHECK_EXISTS=false
+```
+
+### Full parameter validation
+
+Opt in per call with `validate()`, or globally via `.env`:
+
+```env
+STORED_PROC_VALIDATE=true
+```
+
+```php
+$result = StoredProcedure::procedure('get_user_by_id')
+    ->params([':id'])
+    ->values([1])
+    ->validate()  // checks existence + input/output parameter counts
+    ->run()
+    ->result();
+```
+
+When validation fails, a `ParameterMismatchException` is thrown with a message listing what the database expects vs. what you provided.
+
+### Check existence without executing
+
+```php
+// Throws StoredProcedureNotFoundException if missing
+StoredProcedure::procedure('get_users')->assertExists();
+
+// Returns true/false without throwing
+if (StoredProcedure::procedure('get_users')->exists()) {
+    // ...
+}
+```
+
+### Schema qualification
+
+Unqualified names are resolved automatically:
+
+- **SQL Server**: prefixed with `dbo` (or `STORED_PROC_SCHEMA`)
+- **MySQL**: prefixed with the connection database name
+
+Override explicitly:
+
+```php
+// Qualified name in the procedure itself
+StoredProcedure::procedure('dbo.sp_get_users')->run()->result();
+
+// Or set schema separately
+StoredProcedure::procedure('sp_get_users')
+    ->stored_procedure_schema('custom_schema')
+    ->run()
+    ->result();
+```
+
+On SQL Server, set `STORED_PROC_CHECK_SYNONYMS=true` if you call procedures via synonyms and want them to pass existence checks.
 
 ---
 
@@ -427,7 +534,7 @@ class UserController extends Controller
 }
 ```
 
-This is useful when you want to inject the instance or reuse it across multiple calls.
+This is useful when you want to inject the instance or reuse it across multiple calls. The instance auto-resets after `result()`; call `reset()` manually if you need to clear state earlier.
 
 ---
 
@@ -446,14 +553,16 @@ This uses Laravel’s connection from `config/database.php`.
 ## Common Gotchas
 
 - You **must** call methods in this order:
-  1. `stored_procedure()` (required)
-  2. `stored_procedure_connection()` (optional)
-  3. `stored_procedure_params()` (optional, if your proc has parameters)
-  4. `stored_procedure_values()` (required if you set params)
-  5. `stored_procedure_output_params()` (optional, SQL Server only)
-  6. `with_transaction()` (optional)
-  7. `execute()` (required)
-  8. `stored_procedure_result()` (required)
+  1. `stored_procedure()` / `procedure()` (required)
+  2. `stored_procedure_connection()` / `connection()` (optional)
+  3. `stored_procedure_schema()` (optional)
+  4. `stored_procedure_params()` / `params()` (optional, if your proc has parameters)
+  5. `stored_procedure_values()` / `values()` (required if you set params)
+  6. `stored_procedure_output_params()` / `outputs()` (optional, SQL Server & MySQL)
+  7. `validate()` or `assertExists()` (optional)
+  8. `with_transaction()` (optional)
+  9. `execute()` / `run()` (required)
+  10. `stored_procedure_result()` / `result()` (required)
 
 - All **input parameters** must be bound **by position** in the `stored_procedure_values()` array.
 - **OUTPUT/OUT parameters** must be included in `stored_procedure_params()` with clean syntax:
@@ -462,6 +571,8 @@ This uses Laravel’s connection from `config/database.php`.
 - **OUTPUT/OUT parameters** are supported on both SQL Server and MySQL databases.
 - When using OUTPUT/OUT parameters, the result will be an object with `result` and `output` properties.
 - **Pagination** works on the returned Collection, so call `paginate()` after `stored_procedure_result()`.
+- After calling `result()`, the fluent instance **auto-resets** so it can be reused safely via dependency injection.
+- **v2 existence checks** run before execution by default. Set `STORED_PROC_CHECK_EXISTS=false` if you need v1 behavior.
 - The **StoredProcedureServiceProvider** registers the `StoredProcedure` binding; the **PaginationServiceProvider** registers the `paginate()` macro on `Collection`, so both are available after installation.
 - The **`StoredProcedure`** facade alias is registered automatically so you can use `StoredProcedure::stored_procedure('name')` statically in your app.
 - **Logging:** Bound values and output params are logged only at `debug` level to avoid exposing sensitive data in production logs.
@@ -487,6 +598,29 @@ This uses Laravel’s connection from `config/database.php`.
 | OUTPUT/OUT Parameters   | ✅    | ✅         |
 | Pagination              | ✅    | ✅         |
 | Logging                 | ✅    | ✅         |
+| Existence checks (v2)   | ✅    | ✅         |
+| Parameter validation    | ✅    | ✅         |
+| Synonym support (check) | —     | ✅         |
+
+---
+
+## Upgrading from v1 to v2
+
+**v2.0.0** is backward compatible — all v1 method names and chains still work.
+
+Breaking-adjacent changes to be aware of:
+
+1. **Existence checks are on by default.** Every `execute()` / `run()` verifies the procedure exists before calling it. Set `STORED_PROC_CHECK_EXISTS=false` to disable.
+2. **Call-order errors** now throw `InvalidCallOrderException` (still extends `Exception`).
+3. **Execution is driver-based.** `CALL` vs `EXEC` is resolved from the active connection, not a global default.
+
+Publish config when you want to tune validation or schema defaults:
+
+```bash
+php artisan vendor:publish --tag=storedproc-config
+```
+
+See [CHANGELOG.md](CHANGELOG.md) for the full v2 release notes.
 
 ---
 
@@ -581,27 +715,47 @@ $users = StoredProcedure::stored_procedure('get_users_with_filters')
 
 ### Error Handling and Logging
 
-```php
-try {
-    $result = StoredProcedure::stored_procedure('risky_operation')
-        ->stored_procedure_params([':data'])
-        ->stored_procedure_values([$complexData])
-        ->with_transaction()
-        ->execute()
-        ->stored_procedure_result();
+The package throws typed exceptions you can catch individually:
 
-    // Success handling
+| Exception | When |
+| --------- | ---- |
+| `StoredProcedureNotFoundException` | Procedure missing (existence check or DB error) |
+| `ParameterMismatchException` | Parameter count/direction does not match the database |
+| `InvalidCallOrderException` | Fluent methods called in the wrong order |
+| `UnsupportedDriverException` | Connection driver is not MySQL or SQL Server |
+
+All extend `StoredProcedureException`, which extends PHP's `Exception`.
+
+```php
+use MagsLabs\LaravelStoredProc\Exceptions\InvalidCallOrderException;
+use MagsLabs\LaravelStoredProc\Exceptions\ParameterMismatchException;
+use MagsLabs\LaravelStoredProc\Exceptions\StoredProcedureNotFoundException;
+
+try {
+    $result = StoredProcedure::procedure('risky_operation')
+        ->params([':data'])
+        ->values([$complexData])
+        ->validate()
+        ->with_transaction()
+        ->run()
+        ->result();
+
     return response()->json([
         'success' => true,
-        'data' => $result
+        'data' => $result,
     ]);
-
+} catch (StoredProcedureNotFoundException $e) {
+    return response()->json(['message' => 'Procedure not found'], 404);
+} catch (ParameterMismatchException $e) {
+    return response()->json(['message' => $e->getMessage()], 422);
+} catch (InvalidCallOrderException $e) {
+    return response()->json(['message' => $e->getMessage()], 500);
 } catch (Exception $e) {
-    // Error is automatically logged to the dedicated log channel
+    // Execution failures are logged to the dedicated log channel
     return response()->json([
         'success' => false,
         'message' => 'Operation failed',
-        'error' => $e->getMessage()
+        'error' => $e->getMessage(),
     ], 500);
 }
 ```
@@ -668,14 +822,14 @@ To log all stored procedure operations into a dedicated log file, add the follow
 ],
 ```
 
-<!-- ---
+---
 
-## 📄 License
+## License
 
-MIT License. © [Mark Angelo Sollano / magslabs]
+MIT License. © [Mark Angelo Sollano / magslabs](https://github.com/magslabs)
 
 ---
 
-## 🙌 Credits
+## Credits
 
-Created by [@masollano](https://github.com/masollano) on (https://github.com/magslabs/laravel-storedproc) -->
+Created by [@masollano](https://github.com/masollano) — [magslabs/laravel-storedproc](https://github.com/magslabs/laravel-storedproc)
