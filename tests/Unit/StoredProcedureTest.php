@@ -1,24 +1,32 @@
 <?php
 
+use Illuminate\Database\Connection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use MagsLabs\LaravelStoredProc\Contracts\StoredProcedureIntrospector;
+use MagsLabs\LaravelStoredProc\Data\ProcedureParameter;
+use MagsLabs\LaravelStoredProc\Drivers\MySqlDriver;
+use MagsLabs\LaravelStoredProc\Drivers\SqlServerDriver;
+use MagsLabs\LaravelStoredProc\Exceptions\InvalidCallOrderException;
+use MagsLabs\LaravelStoredProc\Exceptions\ParameterMismatchException;
+use MagsLabs\LaravelStoredProc\Exceptions\StoredProcedureNotFoundException;
 use MagsLabs\LaravelStoredProc\StoredProcedure;
+use MagsLabs\LaravelStoredProc\Support\StoredProcedureDriverManager;
+use MagsLabs\LaravelStoredProc\Validation\StoredProcedureValidator;
 
 beforeEach(function () {
-    DB::shouldReceive('getConfig')
-        ->with('driver')
-        ->andReturn('mysql');
+    //
 });
 
 it('sets procedure name via stored_procedure and returns chain', function () {
-    $sp = new StoredProcedure();
+    $sp = new StoredProcedure;
     $instance = $sp->stored_procedure('my_procedure');
 
     expect($instance)->toBeInstanceOf(StoredProcedure::class);
 });
 
 it('chains stored_procedure with params and values', function () {
-    $sp = new StoredProcedure();
+    $sp = new StoredProcedure;
     $result = $sp->stored_procedure('get_user')
         ->stored_procedure_params([':id'])
         ->stored_procedure_values([1]);
@@ -26,10 +34,13 @@ it('chains stored_procedure with params and values', function () {
     expect($result)->toBeInstanceOf(StoredProcedure::class);
 });
 
-it('instantiates with mysql driver', function () {
-    $sp = new StoredProcedure();
+it('supports shorter method aliases', function () {
+    $sp = new StoredProcedure;
+    $result = $sp->procedure('get_user')
+        ->params([':id'])
+        ->values([1]);
 
-    expect($sp)->toBeInstanceOf(StoredProcedure::class);
+    expect($result)->toBeInstanceOf(StoredProcedure::class);
 });
 
 it('registers paginate macro on collection', function () {
@@ -40,4 +51,139 @@ it('registers paginate macro on collection', function () {
 
     expect($paginator->total())->toBe(5);
     expect($paginator->count())->toBe(2);
+});
+
+it('throws invalid call order exceptions that extend exception', function () {
+    $sp = new StoredProcedure;
+
+    expect(fn () => $sp->stored_procedure_params([':id']))
+        ->toThrow(InvalidCallOrderException::class)
+        ->toThrow(Exception::class);
+});
+
+it('builds mysql and sql server calls via drivers', function () {
+  $mysql = new MySqlDriver;
+  $sqlsrv = new SqlServerDriver;
+
+  expect($mysql->buildCall('get_users', ':id'))->toBe('CALL get_users (:id);');
+  expect($sqlsrv->buildCall('dbo.get_users', '@id'))->toBe('EXEC dbo.get_users @id');
+});
+
+it('assertExists throws when procedure is missing', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->with('missing_proc', 'test_db')->andReturn(false);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    expect(fn () => $sp->stored_procedure('missing_proc')->assertExists())
+        ->toThrow(StoredProcedureNotFoundException::class);
+});
+
+it('validate runs before execute when chained', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->andReturn(true);
+    $introspector->shouldReceive('parameters')->once()->andReturn([
+        new ProcedureParameter('id', 1, 'IN', 'int'),
+    ]);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+    $manager->shouldReceive('driverFor')->once()->andReturn(new MySqlDriver);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+    $connection->shouldReceive('beginTransaction')->never();
+    $connection->shouldReceive('select')->once()->andReturn([['id' => 1]]);
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $validator = new StoredProcedureValidator;
+    $sp = new StoredProcedure($manager, $validator);
+
+    $result = $sp->procedure('get_user')
+        ->params([':id'])
+        ->values([1])
+        ->validate()
+        ->run()
+        ->result();
+
+    expect($result)->toBeInstanceOf(Collection::class);
+});
+
+it('fails validation when input value count mismatches', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->andReturn(true);
+    $introspector->shouldReceive('parameters')->once()->andReturn([
+        new ProcedureParameter('id', 1, 'IN', 'int'),
+        new ProcedureParameter('role', 2, 'IN', 'varchar'),
+    ]);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager, new StoredProcedureValidator);
+
+    expect(fn () => $sp->procedure('get_user')
+        ->params([':id', ':role'])
+        ->values([1])
+        ->validate()
+        ->run())
+        ->toThrow(ParameterMismatchException::class);
+});
+
+it('automatically checks procedure exists on every execute', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->with('get_user', 'test_db')->andReturn(true);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+    $manager->shouldReceive('driverFor')->once()->andReturn(new MySqlDriver);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+    $connection->shouldReceive('select')->once()->andReturn([]);
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    $sp->procedure('get_user')->run();
+
+    expect(true)->toBeTrue();
+});
+
+it('throws when procedure is missing on execute without validate', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->andReturn(false);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    expect(fn () => $sp->procedure('missing_proc')->run())
+        ->toThrow(StoredProcedureNotFoundException::class);
 });

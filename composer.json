@@ -1,5 +1,6 @@
 {
     "name": "magslabs/laravel-storedproc",
+    "version": "2.0.0",
     "type": "library",
     "description": "A fluent Laravel package for calling stored procedures with support for OUTPUT parameters, pagination, and transactions.",
     "keywords": [
