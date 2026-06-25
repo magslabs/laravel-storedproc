@@ -5,6 +5,7 @@ namespace MagsLabs\LaravelStoredProc\Drivers;
 use Illuminate\Database\Connection;
 use MagsLabs\LaravelStoredProc\Contracts\StoredProcedureDriver;
 use MagsLabs\LaravelStoredProc\Data\ExecutionResult;
+use MagsLabs\LaravelStoredProc\Exceptions\StoredProcedureException;
 use PDO;
 
 class SqlServerDriver implements StoredProcedureDriver
@@ -39,9 +40,9 @@ class SqlServerDriver implements StoredProcedureDriver
         array $output_params,
     ): ExecutionResult {
         $sp_call = $this->buildCall($procedure, $params);
-        $pdo = $connection->getPdo();
 
         if (! empty($output_params)) {
+            $pdo = $connection->getPdo();
             $declare_stmts = [];
             $exec_call = $sp_call;
             $select_stmts = [];
@@ -66,11 +67,27 @@ class SqlServerDriver implements StoredProcedureDriver
             $stmt = $pdo->prepare($full_query);
             $stmt->execute($values);
 
+            if ($stmt->errorCode() !== '00000' && $stmt->errorCode() !== '01000') {
+                $error = $stmt->errorInfo();
+
+                throw new StoredProcedureException(
+                    'SQL Server stored procedure execution failed: '.($error[2] ?? 'Unknown error')
+                );
+            }
+
             while ($stmt->columnCount() === 0 && $stmt->nextRowset()) {
                 // advance to first result set with columns
             }
 
-            return new ExecutionResult([], $stmt->fetchAll(PDO::FETCH_ASSOC));
+            $outputs = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($outputs === false) {
+                throw new StoredProcedureException(
+                    'SQL Server stored procedure output fetch failed.'
+                );
+            }
+
+            return new ExecutionResult([], $outputs);
         }
 
         $result = empty($values)

@@ -12,7 +12,10 @@ return [
     |
     */
 
-    'check_exists_before_execute' => env('STORED_PROC_CHECK_EXISTS', true),
+    'check_exists_before_execute' => filter_var(
+        env('STORED_PROC_CHECK_EXISTS', true),
+        FILTER_VALIDATE_BOOLEAN
+    ),
 
     /*
     |--------------------------------------------------------------------------
@@ -25,7 +28,10 @@ return [
     |
     */
 
-    'validate_before_execute' => env('STORED_PROC_VALIDATE', false),
+    'validate_before_execute' => filter_var(
+        env('STORED_PROC_VALIDATE', false),
+        FILTER_VALIDATE_BOOLEAN
+    ),
 
     /*
     |--------------------------------------------------------------------------

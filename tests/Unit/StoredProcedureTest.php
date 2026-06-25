@@ -62,11 +62,55 @@ it('throws invalid call order exceptions that extend exception', function () {
 });
 
 it('builds mysql and sql server calls via drivers', function () {
-  $mysql = new MySqlDriver;
-  $sqlsrv = new SqlServerDriver;
+    $mysql = new MySqlDriver;
+    $sqlsrv = new SqlServerDriver;
 
-  expect($mysql->buildCall('get_users', ':id'))->toBe('CALL get_users (:id);');
-  expect($sqlsrv->buildCall('dbo.get_users', '@id'))->toBe('EXEC dbo.get_users @id');
+    expect($mysql->buildCall('get_users', ':id'))->toBe('CALL get_users (:id);');
+    expect($sqlsrv->buildCall('dbo.get_users', '@id'))->toBe('EXEC dbo.get_users @id');
+    expect($sqlsrv->buildCall('dbo.get_users', null))->toBe('EXEC dbo.get_users');
+});
+
+it('executes sql server procedures with qualified dbo name when unqualified', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->with('get_users', 'dbo')->andReturn(true);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+    $manager->shouldReceive('driverFor')->once()->andReturn(new SqlServerDriver);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('sqlsrv');
+    $connection->shouldReceive('select')
+        ->once()
+        ->with('EXEC dbo.get_users')
+        ->andReturn([['id' => 1]]);
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    $result = $sp->procedure('get_users')->run()->result();
+
+    expect($result)->toBeInstanceOf(Collection::class);
+    expect($result->first())->toBe(['id' => 1]);
+});
+
+it('throws stored procedure not found for missing sql server procedure with defaults', function () {
+    $introspector = Mockery::mock(StoredProcedureIntrospector::class);
+    $introspector->shouldReceive('exists')->once()->with('missing_proc', 'dbo')->andReturn(false);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->once()->andReturn($introspector);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('sqlsrv');
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    expect(fn () => $sp->procedure('missing_proc')->run())
+        ->toThrow(StoredProcedureNotFoundException::class, 'Stored procedure [dbo.missing_proc] was not found');
 });
 
 it('assertExists throws when procedure is missing', function () {
@@ -186,4 +230,33 @@ it('throws when procedure is missing on execute without validate', function () {
 
     expect(fn () => $sp->procedure('missing_proc')->run())
         ->toThrow(StoredProcedureNotFoundException::class);
+});
+
+it('uses merged package config defaults without publishing', function () {
+    expect(config('storedproc.check_exists_before_execute'))->toBeTrue();
+    expect(config('storedproc.validate_before_execute'))->toBeFalse();
+    expect(config('storedproc.default_schema'))->toBe('dbo');
+});
+
+it('skips existence check only when config explicitly disables it', function () {
+    config(['storedproc.check_exists_before_execute' => false]);
+
+    $manager = Mockery::mock(StoredProcedureDriverManager::class);
+    $manager->shouldReceive('introspectorFor')->never();
+    $manager->shouldReceive('driverFor')->once()->andReturn(new MySqlDriver);
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getDriverName')->andReturn('mysql');
+    $connection->shouldReceive('getDatabaseName')->andReturn('test_db');
+    $connection->shouldReceive('select')->once()->andReturn([]);
+
+    DB::shouldReceive('connection')->andReturn($connection);
+
+    $sp = new StoredProcedure($manager);
+
+    $sp->procedure('any_proc')->run();
+
+    config(['storedproc.check_exists_before_execute' => true]);
+
+    expect(true)->toBeTrue();
 });

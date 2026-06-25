@@ -284,7 +284,13 @@ class StoredProcedure
             $introspector = $this->driver_manager->introspectorFor($this->resolveConnection());
 
             return $introspector->exists($this->procedure_name, $this->resolveSchema());
-        } catch (Throwable) {
+        } catch (Throwable $throwable) {
+            $this->logger()->warning('Stored procedure existence check failed', [
+                'procedure' => $this->qualifiedProcedureName(),
+                'error' => $throwable->getMessage(),
+                'exception' => get_class($throwable),
+            ]);
+
             return false;
         }
     }
@@ -313,10 +319,12 @@ class StoredProcedure
         }
 
         $driver = $this->driver_manager->driverFor($connection);
-        $sp_call = $driver->buildCall($this->procedure_name, $this->params);
+        $procedure = $this->qualifiedProcedureName();
+        $sp_call = $driver->buildCall($procedure, $this->params);
 
         $this->logger()->info('Executing stored procedure', [
             'query' => $sp_call,
+            'procedure' => $procedure,
             'connection' => $this->connection ?? 'default',
             'driver' => $driver->name(),
             'use_transaction' => $this->use_transaction,
@@ -333,7 +341,7 @@ class StoredProcedure
 
             $execution = $driver->execute(
                 $connection,
-                $this->procedure_name,
+                $procedure,
                 $this->params,
                 $this->values,
                 $this->output_params,
@@ -542,8 +550,15 @@ class StoredProcedure
         $introspector = $this->driver_manager->introspectorFor($connection);
 
         if (! $introspector->exists($this->procedure_name, $this->resolveSchema())) {
+            $qualified = $this->qualifiedProcedureName();
+
+            $this->logger()->error('Stored procedure not found before execute', [
+                'procedure' => $qualified,
+                'connection' => $this->connection ?? 'default',
+            ]);
+
             throw new StoredProcedureNotFoundException(
-                "Stored procedure [{$this->qualifiedProcedureName()}] was not found on the database."
+                "Stored procedure [{$qualified}] was not found on the database."
             );
         }
     }
